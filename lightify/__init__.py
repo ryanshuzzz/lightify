@@ -27,7 +27,7 @@ import sys
 import struct
 import logging
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 MODULE = __name__
 PORT = 4000
