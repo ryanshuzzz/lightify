@@ -25,8 +25,9 @@ import binascii
 import socket
 import sys
 import struct
-import time
 import logging
+
+__version__ = '1.0.0'
 
 MODULE = __name__
 PORT = 4000
@@ -49,6 +50,7 @@ COMMAND_LIGHT_STATUS = 0x68
 # 33 set group temp
 # 36 set group colour
 # 68 light status (returns light address and light status (?))
+
 
 class Luminary(object):
     def __init__(self, conn, logger, name):
@@ -144,6 +146,7 @@ class Light(Luminary):
     def build_command(self, command, data):
         return self.__conn.build_light_command(command, self, data)
 
+
 class Group(Luminary):
     def __init__(self, conn, logger, idx, name):
         super(Group, self).__init__(conn, logger, name)
@@ -175,6 +178,7 @@ class Group(Luminary):
     def build_command(self, command, data):
         return self.__conn.build_command(command, self, data)
 
+
 class Lightify:
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
@@ -190,7 +194,7 @@ class Lightify:
         except socket.error, msg:
             sys.stderr.write("[ERROR] %s\n" % msg[1])
             sys.exit(1)
- 
+
         try:
             self.__sock.connect((host, PORT))
         except socket.error, msg:
@@ -221,22 +225,49 @@ class Lightify:
     def build_global_command(self, command, data):
         length = 6 + len(data)
 
-        return struct.pack("<H6B", length, 0x02, command, 0, 0, 0x7, self.next_seq()) + data
+        return struct.pack(
+            "<H6B",
+            length,
+            0x02,
+            command,
+            0,
+            0,
+            0x7,
+            self.next_seq()
+        ) + data
 
     def build_basic_command(self, flag, command, group_or_light, data):
         length = 14 + len(data)
 
-        return struct.pack("<H6B", length, flag, command, 0, 0, 0x7, self.next_seq()) + group_or_light + data
+        return struct.pack(
+            "<H6B",
+            length,
+            flag,
+            command,
+            0,
+            0,
+            0x7,
+            self.next_seq()
+        ) + group_or_light + data
 
     def build_command(self, command, group, data):
-        length = 14 + len(data)
+        # length = 14 + len(data)
 
-        return self.build_basic_command(0x02, command, struct.pack("<8B", group.idx(), 0, 0, 0, 0, 0, 0, 0), data)
+        return self.build_basic_command(
+            0x02,
+            command,
+            struct.pack("<8B", group.idx(), 0, 0, 0, 0, 0, 0, 0),
+            data)
 
     def build_light_command(self, command, light, data):
-        length = 6 + 8 + len(data)
+        # length = 6 + 8 + len(data)
 
-        return self.build_basic_command(0x00, command, struct.pack("<Q", light.addr()), data)
+        return self.build_basic_command(
+            0x00,
+            command,
+            struct.pack("<Q", light.addr()),
+            data
+        )
 
     def build_onoff(self, item, on):
         return item.build_command(COMMAND_ONOFF, struct.pack("<B", on))
@@ -245,20 +276,28 @@ class Lightify:
         return item.build_command(COMMAND_TEMP, struct.pack("<HH", temp, time))
 
     def build_luminance(self, item, luminance, time):
-        return item.build_command(COMMAND_LUMINANCE, struct.pack("<BH", luminance, time))
+        return item.build_command(
+            COMMAND_LUMINANCE,
+            struct.pack("<BH", luminance, time)
+        )
 
     def build_colour(self, item, red, green, blue, time):
-        return item.build_command(COMMAND_COLOUR, struct.pack("<BBBBH", red, green, blue, 0xff, time))
+        return item.build_command(
+            COMMAND_COLOUR,
+            struct.pack("<BBBBH", red, green, blue, 0xff, time)
+        )
 
     def build_group_info(self, group):
         return self.build_command(COMMAND_GROUP_INFO, group, "")
 
     def build_all_light_status(self, flag):
-        return self.build_global_command(COMMAND_ALL_LIGHT_STATUS, struct.pack("<B", flag))
+        return self.build_global_command(
+            COMMAND_ALL_LIGHT_STATUS,
+            struct.pack("<B", flag)
+        )
 
     def build_light_status(self, light):
         return light.build_command(COMMAND_LIGHT_STATUS, "")
-
 
     def build_group_list(self):
         return self.build_global_command(COMMAND_GROUP_LIST, "")
@@ -295,7 +334,6 @@ class Lightify:
 
         self.__groups = groups
 
-
     def group_info(self, group):
         lights = []
         data = self.build_group_info(group)
@@ -305,7 +343,7 @@ class Lightify:
         (idx, name, num) = struct.unpack("<H16sB", payload[:19])
         name = name.replace('\0', "")
         self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
-        for i in range(0,num):
+        for i in range(0, num):
             pos = 7 + 19 + i * 8
             payload = data[pos:pos+8]
             (addr,) = struct.unpack("<Q", payload[:8])
@@ -313,7 +351,7 @@ class Lightify:
 
             lights.append(addr)
 
-        #self.read_light_status(addr)
+        # self.read_light_status(addr)
         return lights
 
     def send(self, data):
@@ -332,7 +370,11 @@ class Lightify:
         self.__logger.debug("Expected %d", expected)
 
         while expected > 0:
-            self.__logger.debug('received "%d %s"', length, binascii.hexlify(data))
+            self.__logger.debug(
+                'received "%d %s"',
+                length,
+                binascii.hexlify(data)
+            )
             data = self.__sock.recv(expected)
             expected = expected - len(data)
             string = string + data
@@ -345,17 +387,16 @@ class Lightify:
         data = self.recv()
         return
 
-
-        (on,lum,temp,red,green,blue,h) = struct.unpack("<27x2BH4B16x", data)
-        self.__logger.debug('status: %0x %0x %d %0x %0x %0x %0x', on,lum,temp,red,green,blue,h)
-
-        self.__logger.debug( 'onoff: %d', on)
+        (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+        self.__logger.debug(
+            'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
+        self.__logger.debug('onoff: %d', on)
         self.__logger.debug('temp:  %d', temp)
         self.__logger.debug('lum:   %d', lum)
-        self.__logger.debug('red:   %d', red)
-        self.__logger.debug('green: %d', green)
-        self.__logger.debug('blue:  %d', blue)
-        return (on, lum, temp, red, green, blue)
+        self.__logger.debug('red:   %d', r)
+        self.__logger.debug('green: %d', g)
+        self.__logger.debug('blue:  %d', b)
+        return (on, lum, temp, r, g, b)
 
     def update_all_light_status(self):
         data = self.build_all_light_status(1)
@@ -375,7 +416,7 @@ class Lightify:
 
             self.__logger.debug("%d %d %d", i, pos, len(payload))
 
-            (a,addr,status,name,extra) = struct.unpack("<HQ16s16sQ", payload)
+            (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
             name = name.replace('\0', "")
 
             self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
@@ -384,19 +425,17 @@ class Lightify:
             else:
                 light = Light(self, self.__logger, addr, name)
 
-            (b,on,lum,temp,red,green,blue,h) = struct.unpack("<Q2BH4B", status)
+            (b, on, lum, temp, r, g, b, h) = struct.unpack("<Q2BH4B", stat)
             self.__logger.debug('status: %x %0x', b, h)
-
             self.__logger.debug('onoff: %d', on)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('lum:   %d', lum)
-            self.__logger.debug('red:   %d', red)
-            self.__logger.debug('green: %d', green)
-            self.__logger.debug('blue:  %d', blue)
+            self.__logger.debug('red:   %d', r)
+            self.__logger.debug('green: %d', g)
+            self.__logger.debug('blue:  %d', b)
 
-            light.update_status(on, lum, temp, red, green, blue)
+            light.update_status(on, lum, temp, r, g, b)
             new_lights[addr] = light
-        #return (on, lum, temp, red, green, blue)
+        # return (on, lum, temp, r, g, b)
 
         self.__lights = new_lights
-
