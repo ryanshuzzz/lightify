@@ -27,7 +27,7 @@ import sys
 import struct
 import logging
 
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 
 MODULE = __name__
 PORT = 4000
@@ -191,13 +191,13 @@ class Lightify:
 
         try:
             self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error, msg:
+        except socket.error as msg:
             sys.stderr.write("[ERROR] %s\n" % msg[1])
             sys.exit(1)
 
         try:
             self.__sock.connect((host, PORT))
-        except socket.error, msg:
+        except socket.error as msg:
             sys.stderr.write("[ERROR] %s\n" % msg[1])
             sys.exit(2)
 
