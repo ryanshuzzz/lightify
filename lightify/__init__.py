@@ -377,9 +377,11 @@ class Lightify:
             )
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            # We do not know the encoding, fallback to something safe: cp437
-            # import pdb; pdb.set_trace( )
-            string = string + data.decode('cp437')
+            try:
+                string = string + data
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                string = string + data.decode('cp437')
         self.__logger.debug('received "%s"', string)
         return data
 
@@ -419,8 +421,11 @@ class Lightify:
             self.__logger.debug("%d %d %d", i, pos, len(payload))
 
             (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
-            name = name.decode('cp437')
-            name = name.replace('\0', "")
+            try:
+                name = name.replace('\0', "")
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                name = name.decode('cp437').replace('\0', "")
 
             self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
             if addr in old_lights:
