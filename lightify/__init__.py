@@ -377,8 +377,10 @@ class Lightify:
             )
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            string = string + data
-        self.__logger.debug('received "%s"', binascii.hexlify(string))
+            # We do not know the encoding, fallback to something safe: cp437
+            # import pdb; pdb.set_trace( )
+            string = string + data.decode('cp437')
+        self.__logger.debug('received "%s"', string)
         return data
 
     def update_light_status(self, light):
@@ -417,6 +419,7 @@ class Lightify:
             self.__logger.debug("%d %d %d", i, pos, len(payload))
 
             (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+            name = name.decode('cp437')
             name = name.replace('\0', "")
 
             self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
