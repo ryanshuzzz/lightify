@@ -191,14 +191,14 @@ class Lightify:
 
         try:
             self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
+        except socket.error as e:
+            sys.stderr.write("[ERROR] %s\n" % str(e))
             sys.exit(1)
 
         try:
             self.__sock.connect((host, PORT))
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
+        except socket.error as e:
+            sys.stderr.write("[ERROR] %s\n" % str(e))
             sys.exit(2)
 
     def groups(self):
