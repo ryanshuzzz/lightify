@@ -109,6 +109,8 @@ class Light(Luminary):
     def set_onoff(self, on):
         self.__on = on
         super(Light, self).set_onoff(on)
+        if self.lum() == 0 and on != 0:
+            self.__lum = 1  # This seems to be the default
 
     def lum(self):
         return self.__lum
@@ -116,6 +118,10 @@ class Light(Luminary):
     def set_luminance(self, lum, time):
         self.__lum = lum
         super(Light, self).set_luminance(lum, time)
+        if lum > 0 and self.__on == 0:
+            self.__on = 1
+        elif lum == 0 and self.__on != 0:
+            self.__on = 0
 
     def temp(self):
         return self.__temp
@@ -215,31 +221,59 @@ class Lightify:
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data.decode('cp437')
 
-        return struct.pack(
-            "<H6B",
-            length,
-            0x02,
-            command,
-            0,
-            0,
-            0x7,
-            self.next_seq()
-        ) + data
+        return result
 
     def build_basic_command(self, flag, command, group_or_light, data):
         length = 14 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data.decode('cp437')
 
-        return struct.pack(
-            "<H6B",
-            length,
-            flag,
-            command,
-            0,
-            0,
-            0x7,
-            self.next_seq()
-        ) + group_or_light + data
+        return result
 
     def build_command(self, command, group, data):
         # length = 14 + len(data)
