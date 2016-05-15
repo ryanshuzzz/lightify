@@ -189,17 +189,8 @@ class Lightify:
         self.__groups = {}
         self.__lights = {}
 
-        try:
-            self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error as e:
-            sys.stderr.write("[ERROR] %s\n" % str(e))
-            sys.exit(1)
-
-        try:
-            self.__sock.connect((host, PORT))
-        except socket.error as e:
-            sys.stderr.write("[ERROR] %s\n" % str(e))
-            sys.exit(2)
+        self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.__sock.connect((host, PORT))
 
     def groups(self):
         """Dict from group name to Group object."""
