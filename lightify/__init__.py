@@ -109,6 +109,8 @@ class Light(Luminary):
     def set_onoff(self, on):
         self.__on = on
         super(Light, self).set_onoff(on)
+        if self.lum() == 0 and on != 0:
+            self.__lum = 1  # This seems to be the default
 
     def lum(self):
         return self.__lum
@@ -116,6 +118,10 @@ class Light(Luminary):
     def set_luminance(self, lum, time):
         self.__lum = lum
         super(Light, self).set_luminance(lum, time)
+        if lum > 0 and self.__on == 0:
+            self.__on = 1
+        elif lum == 0 and self.__on != 0:
+            self.__on = 0
 
     def temp(self):
         return self.__temp
@@ -189,17 +195,8 @@ class Lightify:
         self.__groups = {}
         self.__lights = {}
 
-        try:
-            self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
-            sys.exit(1)
-
-        try:
-            self.__sock.connect((host, PORT))
-        except socket.error as msg:
-            sys.stderr.write("[ERROR] %s\n" % msg[1])
-            sys.exit(2)
+        self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.__sock.connect((host, PORT))
 
     def groups(self):
         """Dict from group name to Group object."""
@@ -224,31 +221,59 @@ class Lightify:
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                0x02,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + data.decode('cp437')
 
-        return struct.pack(
-            "<H6B",
-            length,
-            0x02,
-            command,
-            0,
-            0,
-            0x7,
-            self.next_seq()
-        ) + data
+        return result
 
     def build_basic_command(self, flag, command, group_or_light, data):
         length = 14 + len(data)
+        try:
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data
+        except TypeError:
+            # Decode using cp437 for python3. This is not UTF-8
+            result = struct.pack(
+                "<H6B",
+                length,
+                flag,
+                command,
+                0,
+                0,
+                0x7,
+                self.next_seq()
+            ) + group_or_light + data.decode('cp437')
 
-        return struct.pack(
-            "<H6B",
-            length,
-            flag,
-            command,
-            0,
-            0,
-            0x7,
-            self.next_seq()
-        ) + group_or_light + data
+        return result
 
     def build_command(self, command, group, data):
         # length = 14 + len(data)
@@ -377,8 +402,12 @@ class Lightify:
             )
             data = self.__sock.recv(expected)
             expected = expected - len(data)
-            string = string + data
-        self.__logger.debug('received "%s"', binascii.hexlify(string))
+            try:
+                string = string + data
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                string = string + data.decode('cp437')
+        self.__logger.debug('received "%s"', string)
         return data
 
     def update_light_status(self, light):
@@ -417,7 +446,11 @@ class Lightify:
             self.__logger.debug("%d %d %d", i, pos, len(payload))
 
             (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
-            name = name.replace('\0', "")
+            try:
+                name = name.replace('\0', "")
+            except TypeError:
+                # Decode using cp437 for python3. This is not UTF-8
+                name = name.decode('cp437').replace('\0', "")
 
             self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
             if addr in old_lights:
