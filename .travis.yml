@@ -9,7 +9,6 @@ python:
 
 install:
    # Install the dependencies the app itself has
- - pip install -r requirements.txt
  - pip install coveralls
 
 # Tell Travis how to run the test script itself
