@@ -14,7 +14,7 @@ This is a work in progress.
 Usage
 -----
 
-```
+```shell
   pip install lightify
 ```
 
@@ -22,7 +22,8 @@ Example
 -------
 
 Turn on all lights connected to the gateway.
-```
+
+```python
   from lightify import Lightify
 
   lightify = Lightify("Lightify-Hostname")
