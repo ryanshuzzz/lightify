@@ -14,13 +14,15 @@ This is a work in progress.
 Usage
 -----
 
+```
   pip install lightify
+```
 
 Example
 -------
 
 Turn on all lights connected to the gateway.
-
+```
   from lightify import Lightify
 
   lightify = Lightify("Lightify-Hostname")
@@ -28,6 +30,7 @@ Turn on all lights connected to the gateway.
   lights = lightify.lights()
   for light in lights.keys():
     lights[light].set_onoff(True)
+```
 
 .. _OSRAM: http://www.osram.com
 .. _Lightify: http://led.osram.de/lightify
