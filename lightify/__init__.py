@@ -25,6 +25,7 @@ import binascii
 import socket
 import struct
 import logging
+import threading
 
 __version__ = '1.0.3'
 
@@ -67,19 +68,16 @@ class Luminary(object):
     def set_onoff(self, on):
         data = self.__conn.build_onoff(self, on)
         self.__conn.send(data)
-        self.__conn.recv()
 
     def set_luminance(self, lum, time):
         lum = min(MAX_LUMINANCE,lum)
         data = self.__conn.build_luminance(self, lum, time)
         self.__conn.send(data)
-        self.__conn.recv()
 
     def set_temperature(self, temp, time):
         temp = min(MAX_TEMPERATURE, temp)
         data = self.__conn.build_temp(self, temp, time)
         self.__conn.send(data)
-        self.__conn.recv()
 
     def set_rgb(self, r, g, b, time):
         r = min(r, MAX_COLOR)
@@ -87,7 +85,6 @@ class Luminary(object):
         b = min(b, MAX_COLOR)
         data = self.__conn.build_colour(self, r, g, b, time)
         self.__conn.send(data)
-        self.__conn.recv()
 
 
 class Light(Luminary):
@@ -202,6 +199,7 @@ class Lightify:
         self.__seq = 1
         self.__groups = {}
         self.__lights = {}
+        self.__lock = threading.RLock()
 
         self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.__sock.connect((host, PORT))
@@ -224,8 +222,9 @@ class Lightify:
         return None
 
     def next_seq(self):
-        self.__seq = (self.__seq + 1) % 256
-        return self.__seq
+        with self.__lock:
+            self.__seq = (self.__seq + 1) % 256
+            return self.__seq
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
@@ -336,146 +335,149 @@ class Lightify:
         return self.build_global_command(COMMAND_GROUP_LIST, "")
 
     def group_list(self):
-        groups = {}
-        data = self.build_group_list()
-        self.send(data)
-        data = self.recv()
-        (num,) = struct.unpack("<H", data[7:9])
-        self.__logger.debug('Num %d', num)
+        with self.__lock:
+            groups = {}
+            data = self.build_group_list()
+            data = self.send(data)
+            (num,) = struct.unpack("<H", data[7:9])
+            self.__logger.debug('Num %d', num)
 
-        for i in range(0, num):
-            pos = 9+i*18
-            payload = data[pos:pos+18]
+            for i in range(0, num):
+                pos = 9+i*18
+                payload = data[pos:pos+18]
 
-            (idx, name) = struct.unpack("<H16s", payload)
-            name = name.replace('\0', "")
+                (idx, name) = struct.unpack("<H16s", payload)
+                name = name.replace('\0', "")
 
-            groups[idx] = name
-            self.__logger.debug("Idx %d: '%s'", idx, name)
+                groups[idx] = name
+                self.__logger.debug("Idx %d: '%s'", idx, name)
 
-        return groups
+            return groups
 
     def update_group_list(self):
-        lst = self.group_list()
-        groups = {}
+        with self.__lock:
+            lst = self.group_list()
+            groups = {}
 
-        for (idx, name) in lst.iteritems():
-            group = Group(self, self.__logger, idx, name)
-            group.set_lights(self.group_info(group))
+            for (idx, name) in lst.iteritems():
+                group = Group(self, self.__logger, idx, name)
+                group.set_lights(self.group_info(group))
 
-            groups[name] = group
+                groups[name] = group
 
-        self.__groups = groups
+            self.__groups = groups
 
     def group_info(self, group):
-        lights = []
-        data = self.build_group_info(group)
-        self.send(data)
-        data = self.recv()
-        payload = data[7:]
-        (idx, name, num) = struct.unpack("<H16sB", payload[:19])
-        name = name.replace('\0', "")
-        self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
-        for i in range(0, num):
-            pos = 7 + 19 + i * 8
-            payload = data[pos:pos+8]
-            (addr,) = struct.unpack("<Q", payload[:8])
-            self.__logger.debug("%d: %x", i, addr)
+        with self.__lock:
+            lights = []
+            data = self.build_group_info(group)
+            data = self.send(data)
+            payload = data[7:]
+            (idx, name, num) = struct.unpack("<H16sB", payload[:19])
+            name = name.replace('\0', "")
+            self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
+            for i in range(0, num):
+                pos = 7 + 19 + i * 8
+                payload = data[pos:pos+8]
+                (addr,) = struct.unpack("<Q", payload[:8])
+                self.__logger.debug("%d: %x", i, addr)
 
-            lights.append(addr)
+                lights.append(addr)
 
-        # self.read_light_status(addr)
-        return lights
+            # self.read_light_status(addr)
+            return lights
 
     def send(self, data):
-        self.__logger.debug('sending "%s"', binascii.hexlify(data))
-        return self.__sock.sendall(data)
+        with self.__lock:
+            # send
+            self.__logger.debug('sending "%s"', binascii.hexlify(data))
+            self.__sock.sendall(data)
 
-    def recv(self):
-        lengthsize = 2
-        data = self.__sock.recv(lengthsize)
-        (length,) = struct.unpack("<H", data[:lengthsize])
+            # receive
+            lengthsize = 2
+            data = self.__sock.recv(lengthsize)
+            (length,) = struct.unpack("<H", data[:lengthsize])
 
-        self.__logger.debug(len(data))
-        string = ""
-        expected = length + 2 - len(data)
-        self.__logger.debug("Length %d", length)
-        self.__logger.debug("Expected %d", expected)
+            self.__logger.debug(len(data))
+            string = ""
+            expected = length + 2 - len(data)
+            self.__logger.debug("Length %d", length)
+            self.__logger.debug("Expected %d", expected)
 
-        while expected > 0:
-            self.__logger.debug(
-                'received "%d %s"',
-                length,
-                binascii.hexlify(data)
-            )
-            data = self.__sock.recv(expected)
-            expected = expected - len(data)
-            try:
-                string = string + data
-            except TypeError:
-                # Decode using cp437 for python3. This is not UTF-8
-                string = string + data.decode('cp437')
-        self.__logger.debug('received "%s"', string)
-        return data
+            while expected > 0:
+                self.__logger.debug(
+                    'received "%d %s"',
+                    length,
+                    binascii.hexlify(data)
+                )
+                data = self.__sock.recv(expected)
+                expected = expected - len(data)
+                try:
+                    string = string + data
+                except TypeError:
+                    # Decode using cp437 for python3. This is not UTF-8
+                    string = string + data.decode('cp437')
+            self.__logger.debug('received "%s"', string)
+            return data
 
     def update_light_status(self, light):
-        data = self.build_light_status(light)
-        self.send(data)
-        data = self.recv()
+        with self.__lock:
+            data = self.build_light_status(light)
+            data = self.send(data)
 
-        (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
-        self.__logger.debug(
-            'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
-        self.__logger.debug('onoff: %d', on)
-        self.__logger.debug('temp:  %d', temp)
-        self.__logger.debug('lum:   %d', lum)
-        self.__logger.debug('red:   %d', r)
-        self.__logger.debug('green: %d', g)
-        self.__logger.debug('blue:  %d', b)
-        return (on, lum, temp, r, g, b)
-
-    def update_all_light_status(self):
-        data = self.build_all_light_status(1)
-        self.send(data)
-        data = self.recv()
-        (num,) = struct.unpack("<H", data[7:9])
-
-        self.__logger.debug('num: %d', num)
-
-        old_lights = self.__lights
-        new_lights = {}
-
-        status_len = 50
-        for i in range(0, num):
-            pos = 9 + i * status_len
-            payload = data[pos:pos+status_len]
-
-            self.__logger.debug("%d %d %d", i, pos, len(payload))
-
-            (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
-            try:
-                name = name.replace('\0', "")
-            except TypeError:
-                # Decode using cp437 for python3. This is not UTF-8
-                name = name.decode('cp437').replace('\0', "")
-
-            self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
-            if addr in old_lights:
-                light = old_lights[addr]
-            else:
-                light = Light(self, self.__logger, addr, name)
-
-            (b, on, lum, temp, r, g, b, h) = struct.unpack("<Q2BH4B", stat)
-            self.__logger.debug('status: %x %0x', b, h)
+            (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+            self.__logger.debug(
+                'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
             self.__logger.debug('onoff: %d', on)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('lum:   %d', lum)
             self.__logger.debug('red:   %d', r)
             self.__logger.debug('green: %d', g)
             self.__logger.debug('blue:  %d', b)
+            return (on, lum, temp, r, g, b)
 
-            light.update_status(on, lum, temp, r, g, b)
-            new_lights[addr] = light
-        # return (on, lum, temp, r, g, b)
+    def update_all_light_status(self):
+        with self.__lock:
+            data = self.build_all_light_status(1)
+            data = self.send(data)
+            (num,) = struct.unpack("<H", data[7:9])
 
-        self.__lights = new_lights
+            self.__logger.debug('num: %d', num)
+
+            old_lights = self.__lights
+            new_lights = {}
+
+            status_len = 50
+            for i in range(0, num):
+                pos = 9 + i * status_len
+                payload = data[pos:pos+status_len]
+
+                self.__logger.debug("%d %d %d", i, pos, len(payload))
+
+                (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+                try:
+                    name = name.replace('\0', "")
+                except TypeError:
+                    # Decode using cp437 for python3. This is not UTF-8
+                    name = name.decode('cp437').replace('\0', "")
+
+                self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
+                if addr in old_lights:
+                    light = old_lights[addr]
+                else:
+                    light = Light(self, self.__logger, addr, name)
+
+                (b, on, lum, temp, r, g, b, h) = struct.unpack("<Q2BH4B", stat)
+                self.__logger.debug('status: %x %0x', b, h)
+                self.__logger.debug('onoff: %d', on)
+                self.__logger.debug('temp:  %d', temp)
+                self.__logger.debug('lum:   %d', lum)
+                self.__logger.debug('red:   %d', r)
+                self.__logger.debug('green: %d', g)
+                self.__logger.debug('blue:  %d', b)
+
+                light.update_status(on, lum, temp, r, g, b)
+                new_lights[addr] = light
+            # return (on, lum, temp, r, g, b)
+
+            self.__lights = new_lights
