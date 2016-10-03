@@ -26,8 +26,7 @@ import socket
 import struct
 import logging
 import threading
-
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 
 MODULE = __name__
 PORT = 4000
@@ -55,6 +54,7 @@ MAX_TEMPERATURE = 8000
 MIN_TEMPERATURE = 1000
 MAX_LUMINANCE = 100
 MAX_COLOR = 255
+TIMEOUT = 3  # timeout in seconds when communicating with the gateway
 
 
 class Luminary(object):
@@ -294,9 +294,20 @@ class Lightify:
         self.__groups = {}
         self.__lights = {}
         self.__lock = threading.RLock()
+        self.__host = host
+        self.connect()
 
-        self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.__sock.connect((host, PORT))
+    def __del__(self):
+        self.__sock.shutdown(socket.SHUT_RDWR)
+        self.__sock.close()
+
+    def connect(self):
+        """ trys to establish a connection with the lightify gateway
+        """
+        with self.__lock:
+            self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.__sock.settimeout(TIMEOUT)
+            self.__sock.connect((self.__host, PORT))
 
     def groups(self):
         """Dict from group name to Group object."""
@@ -486,37 +497,51 @@ class Lightify:
             # self.read_light_status(addr)
             return lights
 
-    def send(self, data):
+    def send(self, data, reconnect=True):
+        """  sends the packet 'data' to the gateway and returns the received packet.
+        :param data: a string containing binary data
+        :param reconnect: if true, will try to reconnect once. if false, will raise an socket.error
+        :return: received packet
+        """
         with self.__lock:
-            # send
-            self.__logger.debug('sending "%s"', binascii.hexlify(data))
-            self.__sock.sendall(data)
+            try:
+                # send
+                self.__logger.debug('sending "%s"', binascii.hexlify(data))
+                self.__sock.sendall(data)
 
-            # receive
-            lengthsize = 2
-            data = self.__sock.recv(lengthsize)
-            (length,) = struct.unpack("<H", data[:lengthsize])
+                # receive
+                lengthsize = 2
+                data = self.__sock.recv(lengthsize)
+                (length,) = struct.unpack("<H", data[:lengthsize])
 
-            self.__logger.debug(len(data))
-            string = ""
-            expected = length + 2 - len(data)
-            self.__logger.debug("Length %d", length)
-            self.__logger.debug("Expected %d", expected)
+                self.__logger.debug(len(data))
+                string = ""
+                expected = length + 2 - len(data)
+                self.__logger.debug("Length %d", length)
+                self.__logger.debug("Expected %d", expected)
 
-            while expected > 0:
-                self.__logger.debug(
-                    'received "%d %s"',
-                    length,
-                    binascii.hexlify(data)
-                )
-                data = self.__sock.recv(expected)
-                expected -= len(data)
-                try:
-                    string = string + data
-                except TypeError:
-                    # Decode using cp437 for python3. This is not UTF-8
-                    string = string + data.decode('cp437')
-            self.__logger.debug('received "%s"', string)
+                while expected > 0:
+                    self.__logger.debug(
+                        'received "%d %s"',
+                        length,
+                        binascii.hexlify(data)
+                    )
+                    data = self.__sock.recv(expected)
+                    expected -= len(data)
+                    try:
+                        string = string + data
+                    except TypeError:
+                        # Decode using cp437 for python3. This is not UTF-8
+                        string = string + data.decode('cp437')
+                self.__logger.debug('received "%s"', string)
+            except socket.error as e:
+                self.__logger.warn('lost connection to lightify gateway.')
+                if reconnect:
+                    self.__logger.warn('Trying to reconnect.')
+                    self.connect()
+                    return self.send(data, reconnect=False)
+                else:
+                    raise e
             return data
 
     def update_light_status(self, light):
@@ -580,3 +605,4 @@ class Lightify:
             # return (on, lum, temp, r, g, b)
 
             self.__lights = new_lights
+
