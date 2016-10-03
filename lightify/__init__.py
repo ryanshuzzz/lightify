@@ -50,6 +50,10 @@ COMMAND_LIGHT_STATUS = 0x68
 # 36 set group colour
 # 68 light status (returns light address and light status (?))
 
+MAX_TEMPERATURE = 6500
+MIN_TEMPERATURE = 2200
+MAX_LUMINANCE = 100
+MAX_COLOR = 255
 
 class Luminary(object):
     def __init__(self, conn, logger, name):
@@ -66,16 +70,21 @@ class Luminary(object):
         self.__conn.recv()
 
     def set_luminance(self, lum, time):
+        lum = min(MAX_LUMINANCE,lum)
         data = self.__conn.build_luminance(self, lum, time)
         self.__conn.send(data)
         self.__conn.recv()
 
     def set_temperature(self, temp, time):
+        temp = min(MAX_TEMPERATURE, temp)
         data = self.__conn.build_temp(self, temp, time)
         self.__conn.send(data)
         self.__conn.recv()
 
     def set_rgb(self, r, g, b, time):
+        r = min(r, MAX_COLOR)
+        g = min(g, MAX_COLOR)
+        b = min(b, MAX_COLOR)
         data = self.__conn.build_colour(self, r, g, b, time)
         self.__conn.send(data)
         self.__conn.recv()
@@ -115,7 +124,7 @@ class Light(Luminary):
         return self.__lum
 
     def set_luminance(self, lum, time):
-        self.__lum = lum
+        self.__lum = min(MAX_LUMINANCE, lum)
         super(Light, self).set_luminance(lum, time)
         if lum > 0 and self.__on == 0:
             self.__on = 1
@@ -126,16 +135,16 @@ class Light(Luminary):
         return self.__temp
 
     def set_temperature(self, temp, time):
-        self.__temp = temp
+        self.__temp = min(MAX_TEMPERATURE, temp)
         super(Light, self).set_temperature(temp, time)
 
     def rgb(self):
         return (self.red(), self.green(), self.blue())
 
     def set_rgb(self, r, g, b, time):
-        self.__r = r
-        self.__g = g
-        self.__b = b
+        self.__r = min(r, MAX_COLOR)
+        self.__g = min(g, MAX_COLOR)
+        self.__b = min(b, MAX_COLOR)
 
         super(Light, self).set_rgb(r, g, b, time)
 
@@ -215,7 +224,7 @@ class Lightify:
         return None
 
     def next_seq(self):
-        self.__seq = self.__seq + 1
+        self.__seq = (self.__seq + 1) % 256
         return self.__seq
 
     def build_global_command(self, command, data):
@@ -413,7 +422,6 @@ class Lightify:
         data = self.build_light_status(light)
         self.send(data)
         data = self.recv()
-        return
 
         (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
         self.__logger.debug(
