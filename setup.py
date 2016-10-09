@@ -18,7 +18,7 @@ setup(
     description='A library to work with OSRAM lightify.',
     long_description=README,
     url='https://github.com/tfriedel/python-lightify',
-    author=Thomas Friedel',
+    author='Thomas Friedel',
     author_email='thomas.friedel@gmail.com',
     classifiers=[
         'Intended Audience :: Developers',
