@@ -17,9 +17,9 @@ setup(
     license='BSD License',
     description='A library to work with OSRAM lightify.',
     long_description=README,
-    url='https://github.com/aneumeier/python-lightify',
-    author='Andreas.Neumeier',
-    author_email='andreas@neumeier.org',
+    url='https://github.com/tfriedel/python-lightify',
+    author=Thomas Friedel',
+    author_email='thomas.friedel@gmail.com',
     classifiers=[
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',    # example license

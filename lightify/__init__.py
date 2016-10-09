@@ -54,7 +54,7 @@ MAX_TEMPERATURE = 8000
 MIN_TEMPERATURE = 1000
 MAX_LUMINANCE = 100
 MAX_COLOR = 255
-TIMEOUT = 3  # timeout in seconds when communicating with the gateway
+TIMEOUT = 10  # timeout in seconds when communicating with the gateway
 
 
 class Luminary(object):
@@ -536,6 +536,7 @@ class Lightify:
                 self.__logger.debug('received "%s"', string)
             except socket.error as e:
                 self.__logger.warn('lost connection to lightify gateway.')
+                self.__logger.warn('socketError: {}'.format(str(e)))
                 if reconnect:
                     self.__logger.warn('Trying to reconnect.')
                     self.connect()
@@ -577,8 +578,13 @@ class Lightify:
                 payload = data[pos:pos + status_len]
 
                 self.__logger.debug("%d %d %d", i, pos, len(payload))
-
-                (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+                try:
+                    (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+                except struct.error as e:
+                    self.__logger.warn("couldn't unpack light status packet.")
+                    self.__logger.warn("struct.error: {}".format(str(e)))
+                    self.__logger.warn("payload: {}".format(binascii.hexlify(payload)))
+                    return
                 try:
                     name = name.replace('\0', "")
                 except TypeError:
