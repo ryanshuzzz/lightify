@@ -11,7 +11,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='lightify',
-    version=__version__,
+    version='1.0.4',
     packages=['lightify'],
     include_package_data=True,
     license='BSD License',
