@@ -26,7 +26,7 @@ import socket
 import struct
 import logging
 import threading
-__version__ = '1.0.4'
+__version__ = '1.0.5'
 
 MODULE = __name__
 PORT = 4000
@@ -233,6 +233,8 @@ class Light(Luminary):
         return self.__b
 
     def build_command(self, command, data):
+        if type(data) is str:
+            data = data.encode('cp437')
         return self.__conn.build_light_command(command, self, data)
 
 
@@ -278,11 +280,9 @@ class Group(Luminary):
         return "<group: %s, lights: %s>" % (self.name(), s)
 
     def build_command(self, command, data):
+        if type(data) is str:
+            data = data.encode('cp437')
         return self.__conn.build_command(command, self, data)
-
-
-
-
 
 class Lightify:
     def __init__(self, host):
@@ -320,7 +320,7 @@ class Lightify:
     def light_byname(self, name):
         self.__logger.debug(len(self.lights()))
 
-        for light in self.lights().itervalues():
+        for light in self.lights().items():
             if light.name() == name:
                 return light
 
@@ -333,57 +333,37 @@ class Lightify:
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
-        try:
-            result = struct.pack(
-                "<H6B",
-                length,
-                0x02,
-                command,
-                0,
-                0,
-                0x7,
-                self.next_seq()
-            ) + data
-        except TypeError:
-            # Decode using cp437 for python3. This is not UTF-8
-            result = struct.pack(
-                "<H6B",
-                length,
-                0x02,
-                command,
-                0,
-                0,
-                0x7,
-                self.next_seq()
-            ) + data.decode('cp437')
+        if type(data) is str:
+            data = data.encode('cp437')
+        result = struct.pack(
+            "<H6B",
+            length,
+            0x02,
+            command,
+            0,
+            0,
+            0x7,
+            self.next_seq()
+        ) + data
 
         return result
 
     def build_basic_command(self, flag, command, group_or_light, data):
         length = 14 + len(data)
-        try:
-            result = struct.pack(
-                "<H6B",
-                length,
-                flag,
-                command,
-                0,
-                0,
-                0x7,
-                self.next_seq()
-            ) + group_or_light + data
-        except TypeError:
-            # Decode using cp437 for python3. This is not UTF-8
-            result = struct.pack(
-                "<H6B",
-                length,
-                flag,
-                command,
-                0,
-                0,
-                0x7,
-                self.next_seq()
-            ) + group_or_light + data.decode('cp437')
+        if type(data) is str:
+            data = data.encode('cp437')
+        if type(group_or_light) is str:
+            group_or_light = group_or_light.decode('cp437')
+        result = struct.pack(
+            "<H6B",
+            length,
+            flag,
+            command,
+            0,
+            0,
+            0x7,
+            self.next_seq()
+        ) + group_or_light + data
 
         return result
 
@@ -429,7 +409,7 @@ class Lightify:
         )
 
     def build_group_info(self, group):
-        return self.build_command(COMMAND_GROUP_INFO, group, "")
+        return self.build_command(COMMAND_GROUP_INFO, group, "".encode('cp437'))
 
     def build_all_light_status(self, flag):
         return self.build_global_command(
@@ -439,10 +419,10 @@ class Lightify:
 
     @staticmethod
     def build_light_status(light):
-        return light.build_command(COMMAND_LIGHT_STATUS, "")
+        return light.build_command(COMMAND_LIGHT_STATUS, "".encode('cp437'))
 
     def build_group_list(self):
-        return self.build_global_command(COMMAND_GROUP_LIST, "")
+        return self.build_global_command(COMMAND_GROUP_LIST, "".encode('cp437'))
 
     def group_list(self):
         with self.__lock:
@@ -457,7 +437,7 @@ class Lightify:
                 payload = data[pos:pos + 18]
 
                 (idx, name) = struct.unpack("<H16s", payload)
-                name = name.replace('\0', "")
+                name = name.decode('cp437').replace('\0', "")
 
                 groups[idx] = name
                 self.__logger.debug("Idx %d: '%s'", idx, name)
@@ -469,7 +449,7 @@ class Lightify:
             lst = self.group_list()
             groups = {}
 
-            for (idx, name) in lst.iteritems():
+            for (idx, name) in lst.items():
                 group = Group(self, self.__logger, idx, name)
                 group.set_lights(self.group_info(group))
 
@@ -484,7 +464,7 @@ class Lightify:
             data = self.send(data)
             payload = data[7:]
             (idx, name, num) = struct.unpack("<H16sB", payload[:19])
-            name = name.replace('\0', "")
+            name = name.decode('cp437').replace('\0', "")
             self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
             for i in range(0, num):
                 pos = 7 + 19 + i * 8
@@ -611,4 +591,3 @@ class Lightify:
             # return (on, lum, temp, r, g, b)
 
             self.__lights = new_lights
-
