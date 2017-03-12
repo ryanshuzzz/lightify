@@ -22,12 +22,13 @@
 #
 
 import binascii
+import logging
 import socket
 import struct
-import logging
 import threading
-from enum import Enum
 from collections import defaultdict
+from enum import Enum
+
 __version__ = '1.0.5'
 
 MODULE = __name__
@@ -59,17 +60,18 @@ MAX_COLOR = 255
 TIMEOUT = 10  # timeout in seconds when communicating with the gateway
 
 
-
 class DeviceType(Enum):
     LIGHT = 1
     PLUG = 2
     MOTIONSENSOR = 3
     SWITCH = 4
 
+
 id_to_devicetype = defaultdict(lambda: DeviceType.LIGHT)
-id_to_devicetype.update({10:DeviceType.LIGHT, 16:DeviceType.PLUG,
-                    32:DeviceType.MOTIONSENSOR, 64:DeviceType.SWITCH,
-                    65:DeviceType.SWITCH})
+id_to_devicetype.update({10: DeviceType.LIGHT, 16: DeviceType.PLUG,
+                         32: DeviceType.MOTIONSENSOR, 64: DeviceType.SWITCH,
+                         65: DeviceType.SWITCH})
+
 
 class Luminary(object):
     def __init__(self, conn, logger, name):
@@ -90,7 +92,8 @@ class Luminary(object):
 
     def set_luminance(self, lum, time):
         """
-        :param lum: luminance or brightness, between 0 and 100. if 0, the luminary is turned off.
+        :param lum: luminance or brightness, between 0 and 100. if 0,
+                    the luminary is turned off.
         :param time: transition time in 1/10 seconds
         :return:
         """
@@ -100,7 +103,8 @@ class Luminary(object):
 
     def set_temperature(self, temp, time):
         """
-        :param temp: color temperature in kelvin. typically between 2200 and 6500
+        :param temp: color temperature in kelvin.
+                     typically between 2200 and 6500
         :param time: transition time in 1/10 seconds
         :return:
         """
@@ -151,7 +155,8 @@ class Light(Luminary):
         return "<light: %s>" % self.name()
 
     def update_status(self, on, lum, temp, r, g, b):
-        """ updates internal representation. does not send out a command to the light source!
+        """ updates internal representation. does not send out a command
+            to the light source!
         :param on: if the light is on or off
         :param lum: luminance
         :param temp: color temperature
@@ -175,7 +180,8 @@ class Light(Luminary):
 
     def set_onoff(self, on):
         """
-        :param on: if true, sends a command to turn on the light, updates state of on and luminance variables
+        :param on: if true, sends a command to turn on the light, updates state
+                   of on and luminance variables
         :return:
         """
         self.__on = on
@@ -191,7 +197,8 @@ class Light(Luminary):
 
     def set_luminance(self, lum, time):
         """
-        :param lum: luminance or brightness, between 0 and 100. if 0, the luminary is turned off.
+        :param lum: luminance or brightness, between 0 and 100. if 0,
+                    the luminary is turned off.
         :param time: transition time in 1/10 seconds
         :return:
         """
@@ -210,7 +217,8 @@ class Light(Luminary):
 
     def set_temperature(self, temp, time):
         """
-        :param temp: color temperature in kelvin. typically between 2200 and 6500
+        :param temp: color temperature in kelvin.
+                     typically between 2200 and 6500
         :param time: transition time in 1/10 seconds
         :return:
         """
@@ -219,7 +227,8 @@ class Light(Luminary):
 
     def rgb(self):
         """
-        :return: a tuple containing (red, green, blue). with values between 0 and 255
+        :return: a tuple containing (red, green, blue).
+                 with values between 0 and 255
         """
         return self.red(), self.green(), self.blue()
 
@@ -305,23 +314,27 @@ class Group(Luminary):
             data = data.encode('cp437')
         return self.__conn.build_command(command, self, data)
 
+
 class Lightify:
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
         self.__logger.addHandler(logging.NullHandler())
         self.__logger.info("Logging %s", MODULE)
 
-        self.__seq = 1  # a sequence number which is used to number commands sent to the gateway
+        # a sequence number which is used to number commands
+        # sent to the gateway
+        self.__seq = 1
         self.__groups = {}
         self.__lights = {}
         self.__lock = threading.RLock()
         self.__host = host
+        self.__sock = None
         self.connect()
 
     def __del__(self):
         try:
             self.__sock.shutdown(socket.SHUT_RDWR)
-        except:
+        except OSError:
             pass
         self.__sock.close()
 
@@ -502,9 +515,11 @@ class Lightify:
             return lights
 
     def send(self, data, reconnect=True):
-        """  sends the packet 'data' to the gateway and returns the received packet.
+        """  sends the packet 'data' to the gateway and returns the
+             received packet.
         :param data: a string containing binary data
-        :param reconnect: if true, will try to reconnect once. if false, will raise an socket.error
+        :param reconnect: if true, will try to reconnect once. if false,
+                          will raise an socket.error
         :return: received packet
         """
         with self.__lock:
@@ -539,10 +554,10 @@ class Lightify:
                         string = string + data.decode('cp437')
                 self.__logger.debug('received "%s"', string)
             except socket.error as e:
-                self.__logger.warn('lost connection to lightify gateway.')
-                self.__logger.warn('socketError: {}'.format(str(e)))
+                self.__logger.warning('lost connection to lightify gateway.')
+                self.__logger.warning('socketError: {}'.format(str(e)))
                 if reconnect:
-                    self.__logger.warn('Trying to reconnect.')
+                    self.__logger.warning('Trying to reconnect.')
                     self.connect()
                     return self.send(data, reconnect=False)
                 else:
@@ -554,7 +569,7 @@ class Lightify:
             data = self.build_light_status(light)
             data = self.send(data)
 
-            #(on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+            # (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
             (on, lum, temp, r, g, b, h) = struct.unpack("<19x2BH4B3x", data)
             self.__logger.debug(
                 'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
@@ -584,11 +599,14 @@ class Lightify:
 
                 self.__logger.debug("%d %d %d", i, pos, len(payload))
                 try:
-                    (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ", payload)
+                    (a, addr, stat, name, extra) = struct.unpack("<HQ16s16sQ",
+                                                                 payload)
                 except struct.error as e:
-                    self.__logger.warn("couldn't unpack light status packet.")
-                    self.__logger.warn("struct.error: {}".format(str(e)))
-                    self.__logger.warn("payload: {}".format(binascii.hexlify(payload)))
+                    self.__logger.warning(
+                        "couldn't unpack light status packet.")
+                    self.__logger.warning("struct.error: {}".format(str(e)))
+                    self.__logger.warning(
+                        "payload: {}".format(binascii.hexlify(payload)))
                     return
                 try:
                     name = name.replace('\0', "")
@@ -602,8 +620,10 @@ class Lightify:
                 else:
                     light = Light(self, self.__logger, addr, name)
 
-                (device_type, ver1_1,ver1_2, ver1_3,ver1_4, ver1_5, zone_id, on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
-                version_string = "%02d%02d%02d%d%d" % (ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
+                (device_type, ver1_1, ver1_2, ver1_3, ver1_4, ver1_5, zone_id,
+                 on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
+                version_string = "%02d%02d%02d%d%d" % (
+                    ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
                 light.set_devicetype(id_to_devicetype[device_type])
                 self.__logger.debug('status: %x %0x', b, h)
                 self.__logger.debug('onoff: %d', on)
