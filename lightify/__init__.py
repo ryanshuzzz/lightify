@@ -26,6 +26,8 @@ import socket
 import struct
 import logging
 import threading
+from enum import Enum
+from collections import defaultdict
 __version__ = '1.0.5'
 
 MODULE = __name__
@@ -56,6 +58,18 @@ MAX_LUMINANCE = 100
 MAX_COLOR = 255
 TIMEOUT = 10  # timeout in seconds when communicating with the gateway
 
+
+
+class DeviceType(Enum):
+    LIGHT = 1
+    PLUG = 2
+    MOTIONSENSOR = 3
+    SWITCH = 4
+
+id_to_devicetype = defaultdict(lambda: DeviceType.LIGHT)
+id_to_devicetype.update({10:DeviceType.LIGHT, 16:DeviceType.PLUG,
+                    32:DeviceType.MOTIONSENSOR, 64:DeviceType.SWITCH,
+                    65:DeviceType.SWITCH})
 
 class Luminary(object):
     def __init__(self, conn, logger, name):
@@ -125,6 +139,7 @@ class Light(Luminary):
         self.__r = 0
         self.__g = 0
         self.__b = 0
+        self.__devicetype = DeviceType.LIGHT
 
     def addr(self):
         """
@@ -236,6 +251,12 @@ class Light(Luminary):
         if type(data) is str:
             data = data.encode('cp437')
         return self.__conn.build_light_command(command, self, data)
+
+    def set_devicetype(self, devicetype):
+        self.__devicetype = devicetype
+
+    def devicetype(self):
+        return self.__devicetype
 
 
 class Group(Luminary):
@@ -581,7 +602,9 @@ class Lightify:
                 else:
                     light = Light(self, self.__logger, addr, name)
 
-                (b, on, lum, temp, r, g, b, h) = struct.unpack("<Q2BH4B", stat)
+                (device_type, ver1_1,ver1_2, ver1_3,ver1_4, ver1_5, zone_id, on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
+                version_string = "%02d%02d%02d%d%d" % (ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
+                light.set_devicetype(id_to_devicetype[device_type])
                 self.__logger.debug('status: %x %0x', b, h)
                 self.__logger.debug('onoff: %d', on)
                 self.__logger.debug('temp:  %d', temp)
