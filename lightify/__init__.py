@@ -440,7 +440,7 @@ class Lightify:
                 payload = data[pos:pos + 18]
 
                 (idx, name) = struct.unpack("<H16s", payload)
-                name = name.decode('cp437').replace('\0', "")
+                name = name.decode('utf-8').replace('\0', "")
 
                 groups[idx] = name
                 self.__logger.debug("Idx %d: '%s'", idx, name)
@@ -467,7 +467,7 @@ class Lightify:
             data = self.send(data)
             payload = data[7:]
             (idx, name, num) = struct.unpack("<H16sB", payload[:19])
-            name = name.decode('cp437').replace('\0', "")
+            name = name.decode('utf-8').replace('\0', "")
             self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
             for i in range(0, num):
                 pos = 7 + 19 + i * 8
@@ -572,8 +572,8 @@ class Lightify:
                 try:
                     name = name.replace('\0', "")
                 except TypeError:
-                    # Decode using cp437 for python3. This is not UTF-8
-                    name = name.decode('cp437').replace('\0', "")
+                    # Names are UTF-8 encoded, but not data.
+                    name = name.decode('utf-8').replace('\0', "")
 
                 self.__logger.debug('light: %x %x %s %x', a, addr, name, extra)
                 if addr in old_lights:
