@@ -298,7 +298,10 @@ class Lightify:
         self.connect()
 
     def __del__(self):
-        self.__sock.shutdown(socket.SHUT_RDWR)
+        try:
+            self.__sock.shutdown(socket.SHUT_RDWR)
+        except:
+            pass
         self.__sock.close()
 
     def connect(self):
@@ -320,7 +323,7 @@ class Lightify:
     def light_byname(self, name):
         self.__logger.debug(len(self.lights()))
 
-        for light in self.lights().items():
+        for _, light in self.lights().items():
             if light.name() == name:
                 return light
 
@@ -530,7 +533,8 @@ class Lightify:
             data = self.build_light_status(light)
             data = self.send(data)
 
-            (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+            #(on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+            (on, lum, temp, r, g, b, h) = struct.unpack("<19x2BH4B3x", data)
             self.__logger.debug(
                 'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
             self.__logger.debug('onoff: %d', on)
