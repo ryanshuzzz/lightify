@@ -530,25 +530,25 @@ class Lightify:
 
                 # receive
                 lengthsize = 2
-                data = self.__sock.recv(lengthsize)
-                (length,) = struct.unpack("<H", data[:lengthsize])
+                received_data = self.__sock.recv(lengthsize)
+                (length,) = struct.unpack("<H", received_data[:lengthsize])
 
-                self.__logger.debug(len(data))
+                self.__logger.debug(len(received_data))
                 string = ""
-                expected = length + 2 - len(data)
+                expected = length + 2 - len(received_data)
                 self.__logger.debug("Length %d", length)
                 self.__logger.debug("Expected %d", expected)
-
+                total_received_data = b''
                 while expected > 0:
                     self.__logger.debug(
                         'received "%d %s"',
                         length,
-                        binascii.hexlify(data)
+                        binascii.hexlify(received_data)
                     )
-                    data = self.__sock.recv(expected)
-                    expected -= len(data)
-                    string = repr(data)
-                self.__logger.debug('received %s', string)
+                    received_data = self.__sock.recv(expected)
+                    total_received_data += received_data
+                    expected -= len(received_data)
+                self.__logger.debug('received %s', repr(total_received_data))
             except socket.error as e:
                 self.__logger.warning('lost connection to lightify gateway.')
                 self.__logger.warning('socketError: {}'.format(str(e)))
@@ -558,7 +558,7 @@ class Lightify:
                     return self.send(data, reconnect=False)
                 else:
                     raise e
-            return data
+            return total_received_data
 
     def update_light_status(self, light):
         with self.__lock:
