@@ -547,12 +547,8 @@ class Lightify:
                     )
                     data = self.__sock.recv(expected)
                     expected -= len(data)
-                    try:
-                        string = string + data
-                    except TypeError:
-                        # Decode using cp437 for python3. This is not UTF-8
-                        string = string + data.decode('cp437')
-                self.__logger.debug('received "%s"', string)
+                    string = repr(data)
+                self.__logger.debug('received %s', string)
             except socket.error as e:
                 self.__logger.warning('lost connection to lightify gateway.')
                 self.__logger.warning('socketError: {}'.format(str(e)))
