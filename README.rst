@@ -14,24 +14,25 @@ This is a work in progress.
 Usage
 -----
 
-```shell
-  pip install lightify
-```
+.. code:: shell
+
+    pip install lightify
 
 Example
 -------
 
 Turn on all lights connected to the gateway.
 
-```python
-  from lightify import Lightify
+.. code:: python
 
-  lightify = Lightify("Lightify-Hostname")
-  lightify.update_all_light_status()
-  lights = lightify.lights()
-  for light in lights.keys():
-    lights[light].set_onoff(True)
-```
+    from lightify import Lightify
+    
+    lightify = Lightify("Lightify-Hostname")
+    lightify.update_all_light_status()
+    lights = lightify.lights()
+    for light in lights.keys():
+      lights[light].set_onoff(True)
+
 
 .. _OSRAM: http://www.osram.com
 .. _Lightify: http://led.osram.de/lightify
