@@ -29,7 +29,7 @@ import threading
 from collections import defaultdict
 from enum import Enum
 
-__version__ = '1.0.6'
+__version__ = '1.0.6.1'
 
 MODULE = __name__
 PORT = 4000
