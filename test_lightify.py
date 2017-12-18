@@ -9,7 +9,7 @@ from lightify import Lightify
 GATEWAY_ADDR = "192.168.1.100"
 GROUP_SLEEP = 2
 LIGHT1 = 'Lightstrip'
-GROUP1 = 'Schlafzimmer'
+GROUP1 = 'bedroom'
 GROUP1_LIGHTS = ['Schlafzimmer1', 'Schlafzimmer2']
 
 
