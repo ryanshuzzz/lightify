@@ -23,13 +23,12 @@
 
 import binascii
 import logging
-import socket
 import struct
-import threading
+import asyncio
 from collections import defaultdict
 from enum import Enum
 
-__version__ = '1.0.6.1'
+__version__ = '1.0.7'
 
 MODULE = __name__
 PORT = 4000
@@ -73,6 +72,7 @@ id_to_devicetype.update({10: DeviceType.LIGHT, 16: DeviceType.PLUG,
                          65: DeviceType.SWITCH})
 
 
+
 class Luminary(object):
     def __init__(self, conn, logger, name):
         self.__logger = logger
@@ -82,15 +82,15 @@ class Luminary(object):
     def name(self):
         return self.__name
 
-    def set_onoff(self, on):
+    async def set_onoff(self, on):
         """
         :param on: if true, the luminary is set on, if false it's set off
         :return:
         """
         data = self.__conn.build_onoff(self, on)
-        self.__conn.send(data)
+        await self.__conn.send(data)
 
-    def set_luminance(self, lum, time):
+    async def set_luminance(self, lum, time):
         """
         :param lum: luminance or brightness, between 0 and 100. if 0,
                     the luminary is turned off.
@@ -99,9 +99,9 @@ class Luminary(object):
         """
         lum = min(MAX_LUMINANCE, lum)
         data = self.__conn.build_luminance(self, lum, time)
-        self.__conn.send(data)
+        await self.__conn.send(data)
 
-    def set_temperature(self, temp, time):
+    async def set_temperature(self, temp, time):
         """
         :param temp: color temperature in kelvin.
                      typically between 2200 and 6500
@@ -110,9 +110,9 @@ class Luminary(object):
         """
         temp = min(MAX_TEMPERATURE, temp)
         data = self.__conn.build_temp(self, temp, time)
-        self.__conn.send(data)
+        await self.__conn.send(data)
 
-    def set_rgb(self, r, g, b, time):
+    async def set_rgb(self, r, g, b, time):
         """ set the color
 
         :param r: amount of red. range 0-255
@@ -125,7 +125,7 @@ class Luminary(object):
         g = min(g, MAX_COLOR)
         b = min(b, MAX_COLOR)
         data = self.__conn.build_colour(self, r, g, b, time)
-        self.__conn.send(data)
+        await self.__conn.send(data)
 
 
 class Light(Luminary):
@@ -178,14 +178,14 @@ class Light(Luminary):
         """
         return self.__on
 
-    def set_onoff(self, on):
+    async def set_onoff(self, on):
         """
         :param on: if true, sends a command to turn on the light, updates state
                    of on and luminance variables
         :return:
         """
         self.__on = on
-        super(Light, self).set_onoff(on)
+        await super(Light, self).set_onoff(on)
         if self.lum() == 0 and on != 0:
             self.__lum = 1  # This seems to be the default
 
@@ -195,7 +195,7 @@ class Light(Luminary):
         """
         return self.__lum
 
-    def set_luminance(self, lum, time):
+    async def set_luminance(self, lum, time):
         """
         :param lum: luminance or brightness, between 0 and 100. if 0,
                     the luminary is turned off.
@@ -203,7 +203,7 @@ class Light(Luminary):
         :return:
         """
         self.__lum = min(MAX_LUMINANCE, lum)
-        super(Light, self).set_luminance(lum, time)
+        await super(Light, self).set_luminance(lum, time)
         if lum > 0 and self.__on == 0:
             self.__on = 1
         elif lum == 0 and self.__on != 0:
@@ -215,7 +215,7 @@ class Light(Luminary):
         """
         return self.__temp
 
-    def set_temperature(self, temp, time):
+    async def set_temperature(self, temp, time):
         """
         :param temp: color temperature in kelvin.
                      typically between 2200 and 6500
@@ -223,7 +223,7 @@ class Light(Luminary):
         :return:
         """
         self.__temp = min(MAX_TEMPERATURE, temp)
-        super(Light, self).set_temperature(temp, time)
+        await super(Light, self).set_temperature(temp, time)
 
     def rgb(self):
         """
@@ -232,7 +232,7 @@ class Light(Luminary):
         """
         return self.red(), self.green(), self.blue()
 
-    def set_rgb(self, r, g, b, time):
+    async def set_rgb(self, r, g, b, time):
         """ set the color
 
         :param r: amount of red. range 0-255
@@ -245,7 +245,7 @@ class Light(Luminary):
         self.__g = min(g, MAX_COLOR)
         self.__b = min(b, MAX_COLOR)
 
-        super(Light, self).set_rgb(r, g, b, time)
+        await super(Light, self).set_rgb(r, g, b, time)
 
     def red(self):
         return self.__r
@@ -315,6 +315,7 @@ class Group(Luminary):
         return self.__conn.build_command(command, self, data)
 
 
+
 class Lightify:
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
@@ -326,25 +327,22 @@ class Lightify:
         self.__seq = 1
         self.__groups = {}
         self.__lights = {}
-        self.__lock = threading.RLock()
         self.__host = host
-        self.__sock = None
-        self.connect()
+        self.__lock = asyncio.Lock()
 
-    def __del__(self):
-        try:
-            self.__sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        self.__sock.close()
+    # def __del__(self):
+    #     try:
+    #         self.__sock.shutdown(socket.SHUT_RDWR)
+    #     except OSError:
+    #         pass
+    #     self.__sock.close()
 
-    def connect(self):
+    async def connect(self):
         """ trys to establish a connection with the lightify gateway
         """
-        with self.__lock:
-            self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.__sock.settimeout(TIMEOUT)
-            self.__sock.connect((self.__host, PORT))
+        self.__reader, self.__writer = await asyncio.open_connection(self.__host,
+                                                                     PORT)
+
 
     def groups(self):
         """Dict from group name to Group object."""
@@ -364,9 +362,8 @@ class Lightify:
         return None
 
     def next_seq(self):
-        with self.__lock:
-            self.__seq = (self.__seq + 1) % 256
-            return self.__seq
+        self.__seq = (self.__seq + 1) % 256
+        return self.__seq
 
     def build_global_command(self, command, data):
         length = 6 + len(data)
@@ -461,60 +458,59 @@ class Lightify:
     def build_group_list(self):
         return self.build_global_command(COMMAND_GROUP_LIST, "".encode('cp437'))
 
-    def group_list(self):
-        with self.__lock:
-            groups = {}
-            data = self.build_group_list()
-            data = self.send(data)
-            (num,) = struct.unpack("<H", data[7:9])
-            self.__logger.debug('Num %d', num)
+    async def group_list(self):
+        groups = {}
+        data = self.build_group_list()
+        data = await self.send(data)
+        (num,) = struct.unpack("<H", data[7:9])
+        self.__logger.debug('Num %d', num)
 
-            for i in range(0, num):
-                pos = 9 + i * 18
-                payload = data[pos:pos + 18]
+        for i in range(0, num):
+            pos = 9 + i * 18
+            payload = data[pos:pos + 18]
 
-                (idx, name) = struct.unpack("<H16s", payload)
-                name = name.decode('utf-8').replace('\0', "")
-
-                groups[idx] = name
-                self.__logger.debug("Idx %d: '%s'", idx, name)
-
-            return groups
-
-    def update_group_list(self):
-        with self.__lock:
-            lst = self.group_list()
-            groups = {}
-
-            for (idx, name) in lst.items():
-                group = Group(self, self.__logger, idx, name)
-                group.set_lights(self.group_info(group))
-
-                groups[name] = group
-
-            self.__groups = groups
-
-    def group_info(self, group):
-        with self.__lock:
-            lights = []
-            data = self.build_group_info(group)
-            data = self.send(data)
-            payload = data[7:]
-            (idx, name, num) = struct.unpack("<H16sB", payload[:19])
+            (idx, name) = struct.unpack("<H16s", payload)
             name = name.decode('utf-8').replace('\0', "")
-            self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
-            for i in range(0, num):
-                pos = 7 + 19 + i * 8
-                payload = data[pos:pos + 8]
-                (addr,) = struct.unpack("<Q", payload[:8])
-                self.__logger.debug("%d: %x", i, addr)
 
-                lights.append(addr)
+            groups[idx] = name
+            self.__logger.debug("Idx %d: '%s'", idx, name)
 
-            # self.read_light_status(addr)
-            return lights
+        return groups
 
-    def send(self, data, reconnect=True):
+    async def update_group_list(self):
+        lst = await self.group_list()
+        groups = {}
+
+        for (idx, name) in lst.items():
+            group = Group(self, self.__logger, idx, name)
+            group_info = await self.group_info(group)
+            group.set_lights(group_info)
+
+            groups[name] = group
+
+        self.__groups = groups
+
+    async def group_info(self, group):
+        lights = []
+        data = self.build_group_info(group)
+        data = await self.send(data)
+        payload = data[7:]
+        (idx, name, num) = struct.unpack("<H16sB", payload[:19])
+        name = name.decode('utf-8').replace('\0', "")
+        self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
+        for i in range(0, num):
+            pos = 7 + 19 + i * 8
+            payload = data[pos:pos + 8]
+            (addr,) = struct.unpack("<Q", payload[:8])
+            self.__logger.debug("%d: %x", i, addr)
+
+            lights.append(addr)
+
+        # self.read_light_status(addr)
+        return lights
+
+
+    async def send(self, data, reconnect=True):
         """  sends the packet 'data' to the gateway and returns the
              received packet.
         :param data: a string containing binary data
@@ -522,120 +518,123 @@ class Lightify:
                           will raise an socket.error
         :return: received packet
         """
-        with self.__lock:
-            try:
-                # send
-                self.__logger.debug('sending "%s"', binascii.hexlify(data))
-                self.__sock.sendall(data)
 
-                # receive
-                lengthsize = 2
-                received_data = self.__sock.recv(lengthsize)
-                (length,) = struct.unpack("<H", received_data[:lengthsize])
+        # try
+        # send
+        async with self.__lock:
+            self.__logger.debug('sending "%s"', binascii.hexlify(data))
+            self.__writer.write(data)
+            await self.__writer.drain()
+            # self.__sock.sendall(data)
 
-                self.__logger.debug(len(received_data))
-                string = ""
-                expected = length + 2 - len(received_data)
-                self.__logger.debug("Length %d", length)
-                self.__logger.debug("Expected %d", expected)
-                total_received_data = b''
-                while expected > 0:
-                    self.__logger.debug(
-                        'received "%d %s"',
-                        length,
-                        binascii.hexlify(received_data)
-                    )
-                    received_data = self.__sock.recv(expected)
-                    total_received_data += received_data
-                    expected -= len(received_data)
-                self.__logger.debug('received %s', repr(total_received_data))
-            except socket.error as e:
-                self.__logger.warning('lost connection to lightify gateway.')
-                self.__logger.warning('socketError: {}'.format(str(e)))
-                if reconnect:
-                    self.__logger.warning('Trying to reconnect.')
-                    self.connect()
-                    return self.send(data, reconnect=False)
-                else:
-                    raise e
+            # receive
+            lengthsize = 2
+            received_data = await self.__reader.read(lengthsize)
+            (length,) = struct.unpack("<H", received_data[:lengthsize])
+
+            self.__logger.debug(len(received_data))
+            string = ""
+            expected = length + 2 - len(received_data)
+            self.__logger.debug("Length %d", length)
+            self.__logger.debug("Expected %d", expected)
+            total_received_data = b''
+            while expected > 0:
+                self.__logger.debug(
+                    'received "%d %s"',
+                    length,
+                    binascii.hexlify(received_data)
+                )
+                received_data = await self.__reader.read(expected)
+                total_received_data += received_data
+                expected -= len(received_data)
+            self.__logger.debug('received %s', repr(total_received_data))
+
+            # except socket.error as e:
+            #     self.__logger.warning('lost connection to lightify gateway.')
+            #     self.__logger.warning('socketError: {}'.format(str(e)))
+            #     if reconnect:
+            #         self.__logger.warning('Trying to reconnect.')
+            #         self.connect()
+            #         return self.send(data, reconnect=False)
+            #     else:
+            #         raise e
             return total_received_data
 
-    def update_light_status(self, light):
-        with self.__lock:
-            data = self.build_light_status(light)
-            data = self.send(data)
+    async def update_light_status(self, light):
+        data = self.build_light_status(light)
+        data = await self.send(data)
 
-            # (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
-            (on, lum, temp, r, g, b, h) = struct.unpack("<19x2BH4B3x", data)
-            self.__logger.debug(
-                'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
+        # (on, lum, temp, r, g, b, h) = struct.unpack("<27x2BH4B16x", data)
+        (on, lum, temp, r, g, b, h) = struct.unpack("<19x2BH4B3x", data)
+        self.__logger.debug(
+            'status: %0x %0x %d %0x %0x %0x %0x', on, lum, temp, r, g, b, h)
+        self.__logger.debug('onoff: %d', on)
+        self.__logger.debug('temp:  %d', temp)
+        self.__logger.debug('lum:   %d', lum)
+        self.__logger.debug('red:   %d', r)
+        self.__logger.debug('green: %d', g)
+        self.__logger.debug('blue:  %d', b)
+        return on, lum, temp, r, g, b
+
+    async def update_all_light_status(self):
+
+        data = self.build_all_light_status(1)
+        data = await self.send(data)
+        (num,) = struct.unpack("<H", data[7:9])
+
+        self.__logger.debug('num: %d', num)
+
+        old_lights = self.__lights
+        new_lights = {}
+
+        status_len = 50
+        for i in range(0, num):
+            pos = 9 + i * status_len
+            payload = data[pos:pos + status_len]
+
+            self.__logger.debug("%d %d %d", i, pos, len(payload))
+            try:
+                (a, addr, stat, name, time_offline, extra) = struct.unpack(
+                    "<HQ16s16sH6s",
+                    payload)
+            except struct.error as e:
+                self.__logger.warning(
+                    "couldn't unpack light status packet.")
+                self.__logger.warning("struct.error: {}".format(str(e)))
+                self.__logger.warning(
+                    "payload: {}".format(binascii.hexlify(payload)))
+                return
+            try:
+                name = name.replace('\0', "")
+            except TypeError:
+                # Names are UTF-8 encoded, but not data.
+                name = name.decode('utf-8').replace('\0', "")
+
+            self.__logger.debug('light: %x %x %s', a, addr, name)
+
+            if addr in old_lights:
+                light = old_lights[addr]
+            else:
+                light = Light(self, self.__logger, addr, name)
+
+            (device_type, ver1_1, ver1_2, ver1_3, ver1_4, ver1_5, zone_id,
+             on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
+            version_string = "%02d%02d%02d%d%d" % (
+                ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
+            light.set_devicetype(id_to_devicetype[device_type])
+            self.__logger.debug('status: %x %0x', b, h)
+            self.__logger.debug('zone id: %x', zone_id)
             self.__logger.debug('onoff: %d', on)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('lum:   %d', lum)
             self.__logger.debug('red:   %d', r)
             self.__logger.debug('green: %d', g)
             self.__logger.debug('blue:  %d', b)
-            return on, lum, temp, r, g, b
+            self.__logger.debug('time offline: %d', time_offline)
+            if time_offline > 1:
+                on = False
+            light.update_status(on, lum, temp, r, g, b)
+            new_lights[addr] = light
+        # return (on, lum, temp, r, g, b)
 
-    def update_all_light_status(self):
-        with self.__lock:
-            data = self.build_all_light_status(1)
-            data = self.send(data)
-            (num,) = struct.unpack("<H", data[7:9])
-
-            self.__logger.debug('num: %d', num)
-
-            old_lights = self.__lights
-            new_lights = {}
-
-            status_len = 50
-            for i in range(0, num):
-                pos = 9 + i * status_len
-                payload = data[pos:pos + status_len]
-
-                self.__logger.debug("%d %d %d", i, pos, len(payload))
-                try:
-                    (a, addr, stat, name, time_offline, extra) = struct.unpack("<HQ16s16sH6s",
-                                                                 payload)
-                except struct.error as e:
-                    self.__logger.warning(
-                        "couldn't unpack light status packet.")
-                    self.__logger.warning("struct.error: {}".format(str(e)))
-                    self.__logger.warning(
-                        "payload: {}".format(binascii.hexlify(payload)))
-                    return
-                try:
-                    name = name.replace('\0', "")
-                except TypeError:
-                    # Names are UTF-8 encoded, but not data.
-                    name = name.decode('utf-8').replace('\0', "")
-
-                self.__logger.debug('light: %x %x %s', a, addr, name )
-
-
-                if addr in old_lights:
-                    light = old_lights[addr]
-                else:
-                    light = Light(self, self.__logger, addr, name)
-
-                (device_type, ver1_1, ver1_2, ver1_3, ver1_4, ver1_5, zone_id,
-                 on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
-                version_string = "%02d%02d%02d%d%d" % (
-                    ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
-                light.set_devicetype(id_to_devicetype[device_type])
-                self.__logger.debug('status: %x %0x', b, h)
-                self.__logger.debug('zone id: %x', zone_id)
-                self.__logger.debug('onoff: %d', on)
-                self.__logger.debug('temp:  %d', temp)
-                self.__logger.debug('lum:   %d', lum)
-                self.__logger.debug('red:   %d', r)
-                self.__logger.debug('green: %d', g)
-                self.__logger.debug('blue:  %d', b)
-                self.__logger.debug('time offline: %d', time_offline)
-                if time_offline>1:
-                    on = False
-                light.update_status(on, lum, temp, r, g, b)
-                new_lights[addr] = light
-            # return (on, lum, temp, r, g, b)
-
-            self.__lights = new_lights
+        self.__lights = new_lights
