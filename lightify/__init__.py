@@ -29,7 +29,7 @@ import threading
 from collections import defaultdict
 from enum import Enum
 
-__version__ = '1.0.6.1'
+__version__ = '1.0.6.2'
 
 MODULE = __name__
 PORT = 4000
@@ -68,9 +68,15 @@ class DeviceType(Enum):
 
 
 id_to_devicetype = defaultdict(lambda: DeviceType.LIGHT)
-id_to_devicetype.update({10: DeviceType.LIGHT, 16: DeviceType.PLUG,
-                         32: DeviceType.MOTIONSENSOR, 64: DeviceType.SWITCH,
-                         65: DeviceType.SWITCH})
+id_to_devicetype.update({10: DeviceType.LIGHT,
+                         16: DeviceType.PLUG,
+                         32: DeviceType.MOTIONSENSOR,
+                         64: DeviceType.SWITCH,
+                         65: DeviceType.SWITCH,
+                         66: DeviceType.SWITCH,
+                         67: DeviceType.SWITCH,
+                         68: DeviceType.SWITCH,
+                         })
 
 
 class Luminary(object):
@@ -622,6 +628,7 @@ class Lightify:
                  on, lum, temp, r, g, b, h) = struct.unpack("<6BH2BH4B", stat)
                 version_string = "%02d%02d%02d%d%d" % (
                     ver1_1, ver1_2, ver1_3, ver1_4, ver1_5)
+                self.__logger.debug('devicetype = {}'.format(device_type))
                 light.set_devicetype(id_to_devicetype[device_type])
                 self.__logger.debug('status: %x %0x', b, h)
                 self.__logger.debug('zone id: %x', zone_id)
