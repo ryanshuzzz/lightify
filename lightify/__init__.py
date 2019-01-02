@@ -36,21 +36,25 @@ PORT = 4000
 
 COMMAND_ALL_LIGHT_STATUS = 0x13
 COMMAND_GROUP_LIST = 0x1e
+COMMAND_SCENE_LIST = 0x1f
 COMMAND_GROUP_INFO = 0x26
 COMMAND_LUMINANCE = 0x31
 COMMAND_ONOFF = 0x32
 COMMAND_TEMP = 0x33
 COMMAND_COLOUR = 0x36
+COMMAND_ACTIVATE_SCENE = 0x52
 COMMAND_LIGHT_STATUS = 0x68
 
 # Commands
 # 13 all light status (returns list of light address, light status, light name)
 # 1e group list (returns list of group id, and group name)
+# 1f scene list (returns list of scene id, and scene name)
 # 26 group status (returns group id, group name, and list of light addresses)
 # 31 set group luminance
 # 32 set group onoff
 # 33 set group temp
 # 36 set group colour
+# 52 activate scene
 # 68 light status (returns light address and light status (?))
 
 MAX_TEMPERATURE = 8000
@@ -315,6 +319,38 @@ class Group(Luminary):
         return self.__conn.build_command(command, self, data)
 
 
+class Scene:
+    """ representation of a scene
+    """
+    def __init__(self, conn, logger, idx, name):
+        self.__logger = logger
+        self.__conn = conn
+        self.__name = name
+        self.__idx = idx
+
+    def name(self):
+        """
+        :return: the scene name
+        """
+        return self.__name
+
+    def idx(self):
+        """
+        :return: the index of the scene provided by the gateway
+        """
+        return self.__idx
+
+    def activate(self):
+        """
+        :return:
+        """
+        data = self.__conn.build_command(COMMAND_ACTIVATE_SCENE, self, '')
+        self.__conn.send(data)
+
+    def __str__(self):
+        return '<scene: %s>' % (self.name(),)
+
+
 class Lightify:
     def __init__(self, host):
         self.__logger = logging.getLogger(MODULE)
@@ -325,6 +361,7 @@ class Lightify:
         # sent to the gateway
         self.__seq = 1
         self.__groups = {}
+        self.__scenes = {}
         self.__lights = {}
         self.__lock = threading.RLock()
         self.__host = host
@@ -349,6 +386,10 @@ class Lightify:
     def groups(self):
         """Dict from group name to Group object."""
         return self.__groups
+
+    def scenes(self):
+        """Dict from scene name to Scene object."""
+        return self.__scenes
 
     def lights(self):
         """Dict from light addr to Light object."""
@@ -385,12 +426,13 @@ class Lightify:
 
         return result
 
-    def build_basic_command(self, flag, command, group_or_light, data):
+    def build_basic_command(self, flag, command, item, data):
         length = 14 + len(data)
         if type(data) is str:
             data = data.encode('cp437')
-        if type(group_or_light) is str:
-            group_or_light = group_or_light.decode('cp437')
+        if type(item) is str:
+            item = item.decode('cp437')
+
         result = struct.pack(
             "<H6B",
             length,
@@ -400,17 +442,17 @@ class Lightify:
             0,
             0x7,
             self.next_seq()
-        ) + group_or_light + data
+        ) + item + data
 
         return result
 
-    def build_command(self, command, group, data):
+    def build_command(self, command, item, data):
         # length = 14 + len(data)
 
         return self.build_basic_command(
             0x02,
             command,
-            struct.pack("<8B", group.idx(), 0, 0, 0, 0, 0, 0, 0),
+            struct.pack("<8B", item.idx(), 0, 0, 0, 0, 0, 0, 0),
             data)
 
     def build_light_command(self, command, light, data):
@@ -514,6 +556,40 @@ class Lightify:
             # self.read_light_status(addr)
             return lights
 
+    def build_scene_list(self):
+        return self.build_global_command(COMMAND_SCENE_LIST, "".encode('cp437'))
+
+    def scene_list(self):
+        with self.__lock:
+            scenes = {}
+            data = self.build_scene_list()
+            data = self.send(data)
+            (num,) = struct.unpack("<H", data[7:9])
+            self.__logger.debug('Num %d', num)
+
+            for i in range(0, num):
+                pos = 9 + i * 20
+                payload = data[pos:pos + 20]
+
+                (idx, _, name, _) = struct.unpack("<BB16sH", payload)
+                name = name.decode('utf-8').replace('\0', '')
+
+                scenes[idx] = name
+                self.__logger.debug("Idx %d: '%s'", idx, name)
+
+            return scenes
+
+    def update_scene_list(self):
+        with self.__lock:
+            lst = self.scene_list()
+            scenes = {}
+
+            for (idx, name) in lst.items():
+                scene = Scene(self, self.__logger, idx, name)
+                scenes[name] = scene
+
+            self.__scenes = scenes
+
     def send(self, data, reconnect=True):
         """  sends the packet 'data' to the gateway and returns the
              received packet.
@@ -534,7 +610,6 @@ class Lightify:
                 (length,) = struct.unpack("<H", received_data[:lengthsize])
 
                 self.__logger.debug(len(received_data))
-                string = ""
                 expected = length + 2 - len(received_data)
                 self.__logger.debug("Length %d", length)
                 self.__logger.debug("Expected %d", expected)
@@ -595,8 +670,8 @@ class Lightify:
 
                 self.__logger.debug("%d %d %d", i, pos, len(payload))
                 try:
-                    (a, addr, stat, name, time_offline, extra) = struct.unpack("<HQ16s16sH6s",
-                                                                 payload)
+                    (a, addr, stat, name, time_offline, _) = struct.unpack("<HQ16s16sH6s",
+                                                                           payload)
                 except struct.error as e:
                     self.__logger.warning(
                         "couldn't unpack light status packet.")
@@ -610,7 +685,7 @@ class Lightify:
                     # Names are UTF-8 encoded, but not data.
                     name = name.decode('utf-8').replace('\0', "")
 
-                self.__logger.debug('light: %x %x %s', a, addr, name )
+                self.__logger.debug('light: %x %x %s', a, addr, name)
 
 
                 if addr in old_lights:
@@ -632,8 +707,10 @@ class Lightify:
                 self.__logger.debug('green: %d', g)
                 self.__logger.debug('blue:  %d', b)
                 self.__logger.debug('time offline: %d', time_offline)
-                if time_offline>1:
+                self.__logger.debug('version: %s', version_string)
+                if time_offline > 1:
                     on = False
+
                 light.update_status(on, lum, temp, r, g, b)
                 new_lights[addr] = light
             # return (on, lum, temp, r, g, b)
