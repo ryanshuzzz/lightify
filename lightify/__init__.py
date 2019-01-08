@@ -37,7 +37,7 @@ PORT = 4000
 COMMAND_ALL_LIGHT_STATUS = 0x13
 COMMAND_GROUP_LIST = 0x1e
 COMMAND_SCENE_LIST = 0x1f
-COMMAND_GROUP_INFO = 0x26
+COMMAND_GROUP_INFO = 0x26 # not used as of now
 COMMAND_LUMINANCE = 0x31
 COMMAND_ONOFF = 0x32
 COMMAND_TEMP = 0x33
@@ -172,6 +172,7 @@ class Light(Luminary):
         self.__b = MAX_COLOR
         self.__devicetype_original = DeviceTypeOriginal.LIGHT_NON_SOFTSWITCH
         self.__devicetype = DeviceType.LIGHT
+        self.__groups = []
 
     def addr(self):
         """
@@ -183,7 +184,7 @@ class Light(Luminary):
         return "<light: %s>" % self.name()
 
     def update_status(self, reachable, last_seen, on, lum, temp, r, g, b,
-                      devicetype_original):
+                      devicetype_original, groups):
         """ updates internal representation. does not send out a command
             to the light source!
 
@@ -196,6 +197,7 @@ class Light(Luminary):
         :param g: green
         :param b: blue
         :param devicetype_original: original device type
+        :param groups: list of associated group ids
         :return:
         """
         devicetype_original = DeviceTypeOriginal(devicetype_original)
@@ -228,6 +230,7 @@ class Light(Luminary):
             g = MAX_COLOR
             b = MAX_COLOR
 
+        self.__groups = groups
         self.__devicetype_original = devicetype_original
         self.__devicetype = devicetype
         self.__reachable = reachable
@@ -371,6 +374,12 @@ class Light(Luminary):
         :return: original device type as returned by lightify
         """
         return self.__devicetype_original
+
+    def groups(self):
+        """
+        :return: list of associated group ids
+        """
+        return self.__groups
 
 
 class Group(Luminary):
@@ -602,9 +611,6 @@ class Lightify:
             struct.pack("<BBBBH", red, green, blue, 0xff, time)
         )
 
-    def build_group_info(self, group):
-        return self.build_command(COMMAND_GROUP_INFO, group, "".encode('cp437'))
-
     def build_all_light_status(self, flag):
         return self.build_global_command(
             COMMAND_ALL_LIGHT_STATUS,
@@ -638,38 +644,23 @@ class Lightify:
 
             return groups
 
-    def update_group_list(self, set_lights=True):
+    def update_group_list(self):
         with self.__lock:
             lst = self.group_list()
             groups = {}
 
             for (idx, name) in lst.items():
                 group = Group(self, self.__logger, idx, name)
-                if set_lights:
-                    group.set_lights(self.group_info(group))
-
                 groups[name] = group
 
             self.__groups = groups
+            self.update_group_lights()
 
-    def group_info(self, group):
-        with self.__lock:
-            lights = []
-            data = self.build_group_info(group)
-            data = self.send(data)
-            payload = data[7:]
-            (idx, name, num) = struct.unpack("<H16sB", payload[:19])
-            name = name.decode('utf-8').replace('\0', "")
-            self.__logger.debug("Idx %d: '%s' %d", idx, name, num)
-            for i in range(0, num):
-                pos = 7 + 19 + i * 8
-                payload = data[pos:pos + 8]
-                (addr,) = struct.unpack("<Q", payload[:8])
-                self.__logger.debug("%d: %x", i, addr)
-
-                lights.append(addr)
-
-            return lights
+    def update_group_lights(self):
+        for group in self.groups().values():
+            lights = [addr for addr in self.lights()
+                      if group.idx() in self.lights()[addr].groups()]
+            group.set_lights(lights)
 
     def build_scene_list(self):
         return self.build_global_command(COMMAND_SCENE_LIST, "".encode('cp437'))
@@ -811,12 +802,14 @@ class Lightify:
                 else:
                     light = Light(self, self.__logger, addr, name)
 
-                (devicetype, ver1_1, ver1_2, ver1_3, ver1_4, reachable, zone_id,
+                (devicetype, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
                  on, lum, temp, r, g, b) = struct.unpack("<6BH2BH3Bx", stat)
+                groups = [16 - i for i, val in enumerate(format(groups, '016b'))
+                          if val == '1']
                 version_string = "%02d%02d%02d%d" % (ver1_1, ver1_2, ver1_3,
                                                      ver1_4)
 
-                self.__logger.debug('zone id: %x', zone_id)
+                self.__logger.debug('groups: %s', groups)
                 self.__logger.debug('reachable: %d', reachable)
                 self.__logger.debug('onoff: %d', on)
                 self.__logger.debug('temp:  %d', temp)
@@ -828,7 +821,8 @@ class Lightify:
                 self.__logger.debug('version: %s', version_string)
 
                 light.update_status(reachable, last_seen, on, lum, temp, r, g, b,
-                                    devicetype)
+                                    devicetype, groups)
                 new_lights[addr] = light
 
             self.__lights = new_lights
+            self.update_group_lights()
