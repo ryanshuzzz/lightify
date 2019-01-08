@@ -8,9 +8,13 @@ from lightify import Lightify
 # the group should contain at least two lights
 GATEWAY_ADDR = "192.168.1.100"
 GROUP_SLEEP = 2
+SCENE_SLEEP = 2
 LIGHT1 = 'Lightstrip'
 GROUP1 = 'bedroom'
 GROUP1_LIGHTS = ['Schlafzimmer1', 'Schlafzimmer2']
+SCENE1 = 'Test'
+SCENE1_LIGHT_ON = 'Schlafzimmer1'
+SCENE1_LIGHT_OFF = 'Schlafzimmer2'
 
 
 def colors_almost_equal(color1, color2):
@@ -24,6 +28,7 @@ def gateway():
     gateway = Lightify(GATEWAY_ADDR)
     gateway.update_all_light_status()
     gateway.update_group_list()
+    gateway.update_scene_list()
     return gateway
 
 
@@ -96,6 +101,27 @@ def test_turn_group_on_and_off(gateway):
         assert not light.on()
 
 
+def test_scenes(gateway):
+    # tests that our scene is returned
+    assert SCENE1 in gateway.scenes()
+
+
+def test_activate_scene(gateway):
+    # tests that our scene is successfully activated
+    light_on = get_addr_of_light(SCENE1_LIGHT_ON, gateway)
+    light_on.set_onoff(0)
+    light_off = get_addr_of_light(SCENE1_LIGHT_OFF, gateway)
+    light_off.set_onoff(1)
+    time.sleep(1)
+    assert not light_on.on()
+    assert light_off.on()
+    gateway.scenes()[SCENE1].activate()
+    time.sleep(SCENE_SLEEP)
+    gateway.update_all_light_status()
+    assert light_on.on()
+    assert not light_off.on()
+
+
 def test_update_single_light(gateway):
     # test if the update_light_status function updates the on variable
     # correctly when turning the light off, on and off again
@@ -133,6 +159,7 @@ def test_light_by_name(gateway):
     assert light.name() == LIGHT1
 
 
+#@pytest.mark.skip(reason="no RGB light around")
 def test_colors_single_light(gateway):
     # switches the light to red, green and blue and checks if the status
     # is updated accordingly
@@ -162,6 +189,7 @@ def test_colors_single_light(gateway):
     light.set_onoff(old_on)
 
 
+#@pytest.mark.skip(reason="no RGB light around")
 def test_colors_group(gateway):
     # turns the lights in the group to red, then green, then blue and
     # checks if the status is updated accordingly
@@ -197,7 +225,7 @@ def test_colors_group(gateway):
         light.set_rgb(r, g, b, 0)
 
 
-# @pytest.mark.skip(reason="takes very long (about 30s)")
+#@pytest.mark.skip(reason="no RGB light around, also takes very long (about 30s)")
 def test_color_cyle(gateway):
     # changes the color of a light in 255 steps and the repeats it once more.
     # this checks if an overflow occurs after 255 steps (was a bug in an older

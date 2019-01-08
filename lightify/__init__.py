@@ -264,6 +264,7 @@ class Light(Luminary):
                    of on and luminance variables
         :return:
         """
+        on = bool(on)
         self.__on = on
         super(Light, self).set_onoff(on)
         if self.lum() == 0 and on:
