@@ -413,6 +413,12 @@ class Group(Luminary):
         """
         self.__lights = lights
 
+    def on(self):
+        """
+        :return: true if any of the group's lights is on, false otherwise
+        """
+        return any([self.__conn.lights()[light].on() for light in self.lights()])
+
     def __str__(self):
         lights_str = ""
         for light_addr in self.lights():
