@@ -383,9 +383,11 @@ class Light:
 
         lum = min(MAX_LUMINANCE, lum)
         self.__lum = lum
-        if lum > 0 and not self.__on:
+        if lum > 0:
+            self.__lum = lum
             self.__on = True
-        elif lum == 0 and self.__on:
+        elif lum == 0:
+            self.__lum = DEFAULT_LUMINANCE
             self.__on = False
 
         if send:
