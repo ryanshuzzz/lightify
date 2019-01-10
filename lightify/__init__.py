@@ -368,7 +368,7 @@ class Light:
         """ set luminance (brightness)
 
         :param lum: luminance (brightness). if 0, the light is turned off.
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :param send: whether to send a command to gateway
         :return:
         """
@@ -396,7 +396,7 @@ class Light:
         """ set colour temperature
 
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :param send: whether to send a command to gateway
         :return:
         """
@@ -425,7 +425,7 @@ class Light:
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :param send: whether to send a command to gateway
         :return:
         """
@@ -532,7 +532,7 @@ class Group:
         """ set luminance (brightness) for the group's lights
 
         :param lum: luminance (brightness)
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
         lum = min(MAX_LUMINANCE, lum)
@@ -548,7 +548,7 @@ class Group:
         """ set colour temperature for the group's lights
 
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
         temp = max(MIN_TEMPERATURE, temp)
@@ -567,7 +567,7 @@ class Group:
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
         red = min(red, MAX_COLOUR)
@@ -791,7 +791,7 @@ class Lightify:
         """
         :param item: Light or Group object
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return: binary command to set the light/group colour temperature
         """
         return item.build_command(
@@ -804,7 +804,7 @@ class Lightify:
         """
         :param item: Light or Group object
         :param lum: luminance (brightness)
-        :param time: transition time in 1/10 seconds
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return: binary command to set the light/group luminance (brightness)
         """
         return item.build_command(
@@ -816,6 +816,10 @@ class Lightify:
     def build_colour(item, red, green, blue, time):
         """
         :param item: Light or Group object
+        :param red: amount of red
+        :param green: amount of green
+        :param blue: amount of blue
+        :param time: transition time in 1/10 seconds, 0 to disable transition
         :return: binary command to set the light/group RGB colour
         """
         return item.build_command(
