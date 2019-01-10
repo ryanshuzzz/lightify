@@ -162,7 +162,7 @@ class Light:
         self.__last_seen = 0
         self.__on = False
         self.__lum = MAX_LUMINANCE
-        self.__temp = MAX_TEMPERATURE
+        self.__temp = MIN_TEMPERATURE
         self.__red = MAX_COLOUR
         self.__green = MAX_COLOUR
         self.__blue = MAX_COLOUR
@@ -316,7 +316,7 @@ class Light:
             blue = 0
         elif devicetype_raw == DeviceTypeRaw.PLUG:
             lum = MAX_LUMINANCE
-            temp = MAX_TEMPERATURE
+            temp = MIN_TEMPERATURE
             red = MAX_COLOUR
             green = MAX_COLOUR
             blue = MAX_COLOUR
@@ -506,6 +506,59 @@ class Group:
         """
         return any([self.__conn.lights()[addr].on()
                     for addr in self.__lights if addr in self.__conn.lights()])
+
+    def lights_attribute(self, attr):
+        """ do a best guess about the group's lights attribute
+
+        :param attr: attribute name
+        :return: guessed attribute value
+        """
+        lights = [self.__conn.lights()[addr] for addr in self.__lights
+                  if addr in self.__conn.lights()]
+        if not lights:
+            return 0
+
+        lights = [(light.on(),
+                   light.devicetype_raw() != DeviceTypeRaw.PLUG,
+                   getattr(light, attr)()) for light in lights]
+        lights.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
+        return lights[0][2]
+
+    def lum(self):
+        """
+        :return: best guess about the group's lights luminance (brightness)
+        """
+        return self.lights_attribute('lum')
+
+    def temp(self):
+        """
+        :return: best guess about the group's lights colour temperature in kelvin
+        """
+        return self.lights_attribute('temp')
+
+    def red(self):
+        """
+        :return: best guess about the group's lights amount of red
+        """
+        return self.lights_attribute('red')
+
+    def green(self):
+        """
+        :return: best guess about the group's lights amount of green
+        """
+        return self.lights_attribute('green')
+
+    def blue(self):
+        """
+        :return: best guess about the group's lights amount of blue
+        """
+        return self.lights_attribute('blue')
+
+    def rgb(self):
+        """
+        :return: tuple containing (red, green, blue)
+        """
+        return self.lights_attribute('rgb')
 
     def set_lights(self, lights):
         """ set group's lights
