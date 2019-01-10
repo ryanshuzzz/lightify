@@ -6,16 +6,29 @@ from lightify import Lightify
 
 # adjust these variables according to your installation
 # the group should contain at least two lights
-GATEWAY_ADDR = "192.168.1.100"
+
+LIGHT_SLEEP = 2
 GROUP_SLEEP = 2
 SCENE_SLEEP = 2
+
+GATEWAY_ADDR = "192.168.1.100"
 LIGHT1 = 'Lightstrip'
+RGB_LIGHT1 = 'Lightstrip'
 GROUP1 = 'bedroom'
 GROUP1_LIGHTS = ['Schlafzimmer1', 'Schlafzimmer2']
+RGB_GROUP1 = 'bedroom'
 SCENE1 = 'Test'
 SCENE1_LIGHT_ON = 'Schlafzimmer1'
 SCENE1_LIGHT_OFF = 'Schlafzimmer2'
-
+#GATEWAY_ADDR = "192.168.1.46"
+#LIGHT1 = 'Hall C L'
+#RGB_LIGHT1 = ''
+#GROUP1 = '[Hall Center]'
+#GROUP1_LIGHTS = ['Hall C L', 'Hall C R']
+#RGB_GROUP1 = ''
+#SCENE1 = 'Kitchen'
+#SCENE1_LIGHT_ON = 'Kitchen C'
+#SCENE1_LIGHT_OFF = 'Hall C L'
 
 def colors_almost_equal(color1, color2):
     r1, g1, b1 = color1
@@ -69,13 +82,19 @@ def test_turn_light_on_and_off(gateway):
     # is updated accordingly
     light = get_addr_of_light(LIGHT1, gateway)
     light.set_onoff(0)
-    time.sleep(1)
+    time.sleep(LIGHT_SLEEP)
+    assert not light.on()
+    gateway.update_all_light_status()
     assert not light.on()
     light.set_onoff(1)
-    time.sleep(1)
+    assert light.on()
+    time.sleep(LIGHT_SLEEP)
+    gateway.update_all_light_status()
     assert light.on()
     light.set_onoff(0)
-    time.sleep(1)
+    assert not light.on()
+    time.sleep(LIGHT_SLEEP)
+    gateway.update_all_light_status()
     assert not light.on()
 
 
@@ -85,16 +104,22 @@ def test_turn_group_on_and_off(gateway):
     group = gateway.groups()[GROUP1]
     lights = ([gateway.lights()[addr] for addr in group.lights()])
     group.set_onoff(0)
+    for light in lights:
+        assert not light.on()
     time.sleep(GROUP_SLEEP)
     gateway.update_all_light_status()
     for light in lights:
         assert not light.on()
     group.set_onoff(1)
+    for light in lights:
+        assert light.on()
     time.sleep(GROUP_SLEEP)
     gateway.update_all_light_status()
     for light in lights:
         assert light.on()
     group.set_onoff(0)
+    for light in lights:
+        assert not light.on()
     time.sleep(GROUP_SLEEP)
     gateway.update_all_light_status()
     for light in lights:
@@ -112,7 +137,7 @@ def test_activate_scene(gateway):
     light_on.set_onoff(0)
     light_off = get_addr_of_light(SCENE1_LIGHT_OFF, gateway)
     light_off.set_onoff(1)
-    time.sleep(1)
+    time.sleep(LIGHT_SLEEP)
     assert not light_on.on()
     assert light_off.on()
     gateway.scenes()[SCENE1].activate()
@@ -127,24 +152,25 @@ def test_update_single_light(gateway):
     # correctly when turning the light off, on and off again
     light = get_addr_of_light(LIGHT1, gateway)
     light.set_onoff(0)
-    time.sleep(1)
+    assert not light.on()
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert not on
-    assert not light.on()
     light.set_onoff(1)
-    time.sleep(1)
+    assert light.on()
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert on
-    assert light.on()
     light.set_onoff(0)
-    time.sleep(1)
+    assert not light.on()
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert not on
-    assert not light.on()
 
 
 @pytest.mark.skip(reason="requires walking in front of the motion sensor")
 def test_motion_sensor(gateway):
+    # test motion sensor
     motion_sensor_name = "MotionSensor1"
     motion_sensor = get_addr_of_light(motion_sensor_name, gateway)
     for i in range(1000):
@@ -159,28 +185,30 @@ def test_light_by_name(gateway):
     assert light.name() == LIGHT1
 
 
-#@pytest.mark.skip(reason="no RGB light around")
 def test_colors_single_light(gateway):
     # switches the light to red, green and blue and checks if the status
     # is updated accordingly
-    light = gateway.light_byname(LIGHT1)
+    if not RGB_LIGHT1:
+        pytest.skip('no RGB lights')
+
+    light = gateway.light_byname(RGB_LIGHT1)
     old_on, old_lum, temp, old_r, old_g, old_b = gateway.update_light_status(
         light)
 
     light.set_onoff(1)
     light.set_luminance(255, 0)
     light.set_rgb(255, 0, 0, 0)
-    time.sleep(1)
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert colors_almost_equal((r, g, b), (255, 0, 0))
 
     light.set_rgb(0, 255, 0, 0)
-    time.sleep(1)
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert colors_almost_equal((r, g, b), (0, 255, 0))
 
     light.set_rgb(0, 0, 255, 0)
-    time.sleep(1)
+    time.sleep(LIGHT_SLEEP)
     on, lum, temp, r, g, b = gateway.update_light_status(light)
     assert colors_almost_equal((r, g, b), (0, 0, 255))
 
@@ -189,11 +217,13 @@ def test_colors_single_light(gateway):
     light.set_onoff(old_on)
 
 
-#@pytest.mark.skip(reason="no RGB light around")
 def test_colors_group(gateway):
     # turns the lights in the group to red, then green, then blue and
     # checks if the status is updated accordingly
-    group = gateway.groups()[GROUP1]
+    if not RGB_GROUP1:
+        pytest.skip('no RGB lights')
+
+    group = gateway.groups()[RGB_GROUP1]
     lights = ([gateway.lights()[addr] for addr in group.lights()])
     group.set_onoff(1)
     time.sleep(GROUP_SLEEP)
@@ -225,12 +255,15 @@ def test_colors_group(gateway):
         light.set_rgb(r, g, b, 0)
 
 
-#@pytest.mark.skip(reason="no RGB light around, also takes very long (about 30s)")
+@pytest.mark.skip(reason="takes very long (about 30s)")
 def test_color_cyle(gateway):
     # changes the color of a light in 255 steps and the repeats it once more.
     # this checks if an overflow occurs after 255 steps (was a bug in an older
     # version of python lightify)
-    light = gateway.light_byname(LIGHT1)
+    if not RGB_LIGHT1:
+        pytest.skip('no RGB lights')
+
+    light = gateway.light_byname(RGB_LIGHT1)
     old_on, old_lum, temp, old_r, old_g, old_b = gateway.update_light_status(
         light)
     light.set_onoff(1)
