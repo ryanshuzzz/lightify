@@ -170,6 +170,7 @@ class Light:
         self.__devicetype = DeviceType.LIGHT
         self.__groups = []
         self.__version = ''
+        self.__supported_features = ()
         self.__deleted = False
 
     def name(self):
@@ -262,6 +263,12 @@ class Light:
         """
         return self.__version
 
+    def supported_features(self):
+        """
+        :return: tuple of supported features (on, lum, temp, rgb)
+        """
+        return self.__supported_features
+
     def deleted(self):
         """
         :return: whether the light is deleted from gateway or not
@@ -314,18 +321,27 @@ class Light:
             red = 0
             green = 0
             blue = 0
+            supported_features = ()
         elif devicetype_raw == DeviceTypeRaw.PLUG:
             lum = MAX_LUMINANCE
             temp = MIN_TEMPERATURE
             red = MAX_COLOUR
             green = MAX_COLOUR
             blue = MAX_COLOUR
+            supported_features = ('on',)
         elif devicetype_raw in (DeviceTypeRaw.LIGHT_NON_SOFTSWITCH,
-                                DeviceTypeRaw.LIGHT_TUNABLE_WHITE,
                                 DeviceTypeRaw.LIGHT_FIXED_WHITE):
             red = MAX_COLOUR
             green = MAX_COLOUR
             blue = MAX_COLOUR
+            supported_features = ('on', 'lum')
+        elif devicetype_raw == DeviceTypeRaw.LIGHT_TUNABLE_WHITE:
+            red = MAX_COLOUR
+            green = MAX_COLOUR
+            blue = MAX_COLOUR
+            supported_features = ('on', 'lum', 'temp')
+        else:
+            supported_features = ('on', 'lum', 'temp', 'rgb')
 
         self.__groups = groups
         self.__devicetype_raw = devicetype_raw
@@ -339,6 +355,7 @@ class Light:
         self.__green = green
         self.__blue = blue
         self.__version = version
+        self.__supported_features = supported_features
 
     def set_onoff(self, on, send=True):
         """ set on/off
@@ -350,9 +367,7 @@ class Light:
         if self.__deleted:
             return
 
-        if self.__devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                                     DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                                     DeviceTypeRaw.SWITCH_FOUR_BUTTONS):
+        if not 'on' in self.__supported_features:
             return
 
         on = bool(on)
@@ -375,10 +390,7 @@ class Light:
         if self.__deleted:
             return
 
-        if self.__devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                                     DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                                     DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
-                                     DeviceTypeRaw.PLUG):
+        if not 'lum' in self.__supported_features:
             return
 
         lum = min(MAX_LUMINANCE, lum)
@@ -405,12 +417,7 @@ class Light:
         if self.__deleted:
             return
 
-        if self.__devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                                     DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                                     DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
-                                     DeviceTypeRaw.PLUG,
-                                     DeviceTypeRaw.LIGHT_NON_SOFTSWITCH,
-                                     DeviceTypeRaw.LIGHT_FIXED_WHITE):
+        if not 'temp' in self.__supported_features:
             return
 
         temp = max(MIN_TEMPERATURE, temp)
@@ -434,13 +441,7 @@ class Light:
         if self.__deleted:
             return
 
-        if self.__devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                                     DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                                     DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
-                                     DeviceTypeRaw.PLUG,
-                                     DeviceTypeRaw.LIGHT_NON_SOFTSWITCH,
-                                     DeviceTypeRaw.LIGHT_TUNABLE_WHITE,
-                                     DeviceTypeRaw.LIGHT_FIXED_WHITE):
+        if not 'rgb' in self.__supported_features:
             return
 
         red = min(red, MAX_COLOUR)
@@ -507,6 +508,15 @@ class Group:
         return any([self.__conn.lights()[addr].on()
                     for addr in self.__lights if addr in self.__conn.lights()])
 
+    def supported_features(self):
+        """
+        :return: tuple of supported features (on, lum, temp, rgb)
+        """
+        features = [self.__conn.lights()[addr].supported_features()
+                    for addr in self.__lights if addr in self.__conn.lights()]
+        features = list(set(sum(features, ())))
+        return features
+
     def lights_attribute(self, attr):
         """ do a best guess about the group's lights attribute
 
@@ -518,11 +528,10 @@ class Group:
         if not lights:
             return 0
 
-        lights = [(light.on(),
-                   light.devicetype_raw() != DeviceTypeRaw.PLUG,
+        lights = [(light.devicetype_raw() != DeviceTypeRaw.PLUG,
                    getattr(light, attr)()) for light in lights]
-        lights.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
-        return lights[0][2]
+        lights.sort(key=lambda t: (t[0], t[1]), reverse=True)
+        return lights[0][1]
 
     def lum(self):
         """
@@ -734,6 +743,9 @@ class Lightify:
         :param name: name of the light
         :return: Light object
         """
+        if not self.__lights_obtained:
+            self.update_all_light_status()
+
         for light in self.__lights.values():
             if light.name() == name:
                 return light
