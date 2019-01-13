@@ -5,7 +5,7 @@ setup(
     version='1.0.6.1',
     packages=['lightify'],
     include_package_data=True,
-    license='BSD License',
+    license='Apache License (2.0)',
     description='A library to work with OSRAM lightify.',
     long_description='A library to work with OSRAM lightify. Threadsafe.',
     url='https://github.com/tfriedel/python-lightify',
