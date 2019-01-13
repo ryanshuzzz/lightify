@@ -84,6 +84,9 @@ class DeviceTypeRaw(Enum):
     MOTIONSENSOR = 32
     SWITCH_TWO_BUTTONS = 64
     SWITCH_FOUR_BUTTONS = 65
+    SWITCH_UNKNOWN1 = 66
+    SWITCH_UNKNOWN2 = 67
+    SWITCH_UNKNOWN3 = 68
 
 
 class DeviceType(Enum):
@@ -96,7 +99,9 @@ class DeviceType(Enum):
 
 ID_TO_DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT)
 ID_TO_DEVICETYPE.update({16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
-                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH})
+                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
+                         66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
+                         68: DeviceType.SWITCH})
 
 
 class Scene:
@@ -306,7 +311,8 @@ class Light:
         :param version: firmware version
         :return:
         """
-        devicetype_raw = DeviceTypeRaw(devicetype_raw)
+        #devicetype_raw = DeviceTypeRaw(devicetype_raw)   # doesn't handle unlisted device types which should be handled
+                                                          # as light
         devicetype = ID_TO_DEVICETYPE[devicetype_raw]
         last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
         reachable = bool(reachable)
@@ -314,7 +320,10 @@ class Light:
 
         if devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
                               DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS):
+                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
+                              DeviceTypeRaw.SWITCH_UNKNOWN1,
+                              DeviceTypeRaw.SWITCH_UNKNOWN2,
+                              DeviceTypeRaw.SWITCH_UNKNOWN3,):
             on = False
             lum = 0
             temp = 0
