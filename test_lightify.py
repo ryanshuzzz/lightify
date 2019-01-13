@@ -9,9 +9,10 @@ from lightify import Lightify
 GATEWAY_ADDR = "192.168.1.100"
 GROUP_SLEEP = 2
 LIGHT1 = 'Lightstrip'
-GROUP1 = 'bedroom'
+GROUP1 = 'Schlafzimmer'
 GROUP1_LIGHTS = ['Schlafzimmer1', 'Schlafzimmer2']
-
+#import logging
+#logging.basicConfig(level=logging.DEBUG)
 
 def colors_almost_equal(color1, color2):
     r1, g1, b1 = color1
