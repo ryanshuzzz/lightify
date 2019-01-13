@@ -34,7 +34,6 @@ from collections import defaultdict
 from enum import Enum
 
 __version__ = '1.0.7.0'
-
 MODULE = __name__
 PORT = 4000
 
@@ -83,7 +82,10 @@ class DeviceTypeRaw(Enum):
     PLUG = 16
     MOTIONSENSOR = 32
     SWITCH_TWO_BUTTONS = 64
-    SWITCH_FOUR_BUTTONS = 65
+    SWITCH_FOUR_BUTTONS = 65    
+    SWITCH_UNKNOWN1 = 66 # not sure atm if these IDs really exist
+    SWITCH_UNKNOWN2 = 67
+    SWITCH_UNKNOWN3 = 68
 
 
 class DeviceType(Enum):
@@ -96,8 +98,9 @@ class DeviceType(Enum):
 
 ID_TO_DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT)
 ID_TO_DEVICETYPE.update({16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
-                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH})
-
+                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
+                         66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
+                         68: DeviceType.SWITCH})
 
 class Scene:
     """ representation of a scene
@@ -305,16 +308,17 @@ class Light:
         :param groups: list of associated group indices
         :param version: firmware version
         :return:
-        """
-        devicetype_raw = DeviceTypeRaw(devicetype_raw)
+        """        
         devicetype = ID_TO_DEVICETYPE[devicetype_raw]
         last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
         reachable = bool(reachable)
         on = bool(on)
-
         if devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
                               DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS):
+                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
+                              DeviceTypeRaw.SWITCH_UNKNOWN1,
+                              DeviceTypeRaw.SWITCH_UNKNOWN2,
+                              DeviceTypeRaw.SWITCH_UNKNOWN3,):          
             on = False
             lum = 0
             temp = 0
@@ -1165,6 +1169,7 @@ class Lightify:
 
                 light.update_status(reachable, last_seen, on, lum, temp, red,
                                     green, blue, devicetype, groups, version)
+
                 new_lights[addr] = light
 
             for addr in old_lights:
