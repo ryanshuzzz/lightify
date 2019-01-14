@@ -72,8 +72,9 @@ LAST_SEEN_DURATION_MINUTES = 5
 GATEWAY_TIMEOUT_SECONDS = 10
 
 
-class DeviceTypeRaw(Enum):
-    """ raw device type as returned by lightify
+class DeviceSubType(Enum):
+    """ device sub type
+        list of known device ids may be incomplete!
     """
     LIGHT_NON_SOFTSWITCH = 1
     LIGHT_TUNABLE_WHITE = 2
@@ -82,10 +83,17 @@ class DeviceTypeRaw(Enum):
     PLUG = 16
     MOTIONSENSOR = 32
     SWITCH_TWO_BUTTONS = 64
-    SWITCH_FOUR_BUTTONS = 65    
+    SWITCH_FOUR_BUTTONS = 65
     SWITCH_UNKNOWN1 = 66 # not sure atm if these IDs really exist
     SWITCH_UNKNOWN2 = 67
     SWITCH_UNKNOWN3 = 68
+
+    @classmethod
+    def has_value(cls, value):
+        """
+        :return: whether enum value exists or not (true/false)
+        """
+        return any(value == item.value for item in cls)
 
 
 class DeviceType(Enum):
@@ -96,11 +104,15 @@ class DeviceType(Enum):
     MOTIONSENSOR = 3
     SWITCH = 4
 
-ID_TO_DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT)
-ID_TO_DEVICETYPE.update({16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
-                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
-                         66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
-                         68: DeviceType.SWITCH})
+
+DEVICESUBTYPE = defaultdict(lambda: DeviceSubType.LIGHT_RGB,
+                            {item.value:item for item in DeviceSubType})
+DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT,
+                         {16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
+                          64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
+                          66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
+                          68: DeviceType.SWITCH})
+
 
 class Scene:
     """ representation of a scene
@@ -152,29 +164,51 @@ class Light:
     """ class for controlling a single light source
     """
 
-    def __init__(self, conn, addr, name):
+    def __init__(self, conn, addr, type_id):
         """
         :param conn: Lightify object
         :param addr: mac address of the light
-        :param name: name of the light
+        :param type_id: original device type id as returned by gateway
         """
+        devicesubtype = DEVICESUBTYPE[type_id]
+        devicetype = DEVICETYPE[type_id]
+
         self.__conn = conn
         self.__addr = addr
-        self.__name = name
+        self.__name = ''
         self.__reachable = True
         self.__last_seen = 0
         self.__on = False
-        self.__lum = MAX_LUMINANCE
-        self.__temp = MIN_TEMPERATURE
-        self.__red = MAX_COLOUR
-        self.__green = MAX_COLOUR
-        self.__blue = MAX_COLOUR
-        self.__devicetype_raw = DeviceTypeRaw.LIGHT_NON_SOFTSWITCH
-        self.__devicetype = DeviceType.LIGHT
         self.__groups = []
         self.__version = ''
-        self.__supported_features = ()
         self.__deleted = False
+        self.__type_id = type_id
+        self.__devicesubtype = devicesubtype
+        self.__devicetype = devicetype
+
+        if devicetype in (DeviceType.MOTIONSENSOR, DeviceType.SWITCH):
+            self.__lum = 0
+            self.__temp = 0
+            self.__red = 0
+            self.__green = 0
+            self.__blue = 0
+            self.__supported_features = ()
+        else:
+            self.__lum = MAX_LUMINANCE
+            self.__temp = MIN_TEMPERATURE
+            self.__red = MAX_COLOUR
+            self.__green = MAX_COLOUR
+            self.__blue = MAX_COLOUR
+
+            if devicetype == DeviceType.PLUG:
+                self.__supported_features = ('on',)
+            elif devicesubtype in (DeviceSubType.LIGHT_NON_SOFTSWITCH,
+                                   DeviceSubType.LIGHT_FIXED_WHITE):
+                self.__supported_features = ('on', 'lum')
+            elif devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
+                self.__supported_features = ('on', 'lum', 'temp')
+            else:
+                self.__supported_features = ('on', 'lum', 'temp', 'rgb')
 
     def name(self):
         """
@@ -242,15 +276,21 @@ class Light:
         """
         return self.__red, self.__green, self.__blue
 
-    def devicetype_raw(self):
+    def type_id(self):
         """
-        :return: raw device type as returned by lightify
+        :return: original device type id as returned by gateway
         """
-        return self.__devicetype_raw
+        return self.__type_id
+
+    def devicesubtype(self):
+        """
+        :return: device sub type (DeviceSubType object)
+        """
+        return self.__devicesubtype
 
     def devicetype(self):
         """
-        :return: generalized device type
+        :return: generalized device type (DeviceType object)
         """
         return self.__devicetype
 
@@ -283,16 +323,8 @@ class Light:
         """
         self.__deleted = True
 
-    def update_name(self, name):
-        """ update the name of the light
-
-        :param name: name of the light
-        :return:
-        """
-        self.__name = name
-
     def update_status(self, reachable, last_seen, on, lum, temp, red, green,
-                      blue, devicetype_raw, groups, version):
+                      blue, name, groups, version):
         """ update internal representation
             does not send out a command to the light source!
 
@@ -304,62 +336,30 @@ class Light:
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param devicetype_raw: raw device type
+        :param name: name of the light
         :param groups: list of associated group indices
         :param version: firmware version
         :return:
-        """        
-        devicetype = ID_TO_DEVICETYPE[devicetype_raw]
-        last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
-        reachable = bool(reachable)
-        on = bool(on)
-        if devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                              DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
-                              DeviceTypeRaw.SWITCH_UNKNOWN1,
-                              DeviceTypeRaw.SWITCH_UNKNOWN2,
-                              DeviceTypeRaw.SWITCH_UNKNOWN3,):          
-            on = False
-            lum = 0
-            temp = 0
-            red = 0
-            green = 0
-            blue = 0
-            supported_features = ()
-        elif devicetype_raw == DeviceTypeRaw.PLUG:
-            lum = MAX_LUMINANCE
-            temp = MIN_TEMPERATURE
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on',)
-        elif devicetype_raw in (DeviceTypeRaw.LIGHT_NON_SOFTSWITCH,
-                                DeviceTypeRaw.LIGHT_FIXED_WHITE):
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on', 'lum')
-        elif devicetype_raw == DeviceTypeRaw.LIGHT_TUNABLE_WHITE:
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on', 'lum', 'temp')
-        else:
-            supported_features = ('on', 'lum', 'temp', 'rgb')
-
+        """
+        self.__reachable = bool(reachable)
+        self.__last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
+        self.__name = name
         self.__groups = groups
-        self.__devicetype_raw = devicetype_raw
-        self.__devicetype = devicetype
-        self.__reachable = reachable
-        self.__last_seen = last_seen
-        self.__on = on
-        self.__lum = lum
-        self.__temp = temp
-        self.__red = red
-        self.__green = green
-        self.__blue = blue
         self.__version = version
-        self.__supported_features = supported_features
+
+        if 'on' in self.__supported_features:
+            self.__on = bool(on)
+
+        if 'lum' in self.__supported_features:
+            self.__lum = lum
+
+        if 'temp' in self.__supported_features:
+            self.__temp = temp
+
+        if 'rgb' in self.__supported_features:
+            self.__red = red
+            self.__green = green
+            self.__blue = blue
 
     def set_onoff(self, on, send=True):
         """ set on/off
@@ -509,8 +509,8 @@ class Group:
         """
         :return: true if any of the group's lights is on, false otherwise
         """
-        return any([self.__conn.lights()[addr].on()
-                    for addr in self.__lights if addr in self.__conn.lights()])
+        return any(self.__conn.lights()[addr].on()
+                   for addr in self.__lights if addr in self.__conn.lights())
 
     def supported_features(self):
         """
@@ -532,7 +532,12 @@ class Group:
         if not lights:
             return 0
 
-        lights = [(light.devicetype_raw() != DeviceTypeRaw.PLUG,
+        if attr in ('red', 'green', 'blue'):
+            feature = 'rgb'
+        else:
+            feature = attr
+
+        lights = [(feature in light.supported_features(),
                    getattr(light, attr)()) for light in lights]
         lights.sort(key=lambda t: (t[0], t[1]), reverse=True)
         return lights[0][1]
@@ -1133,42 +1138,41 @@ class Lightify:
                                           binascii.hexlify(payload))
                     return
 
-                try:
-                    name = name.replace('\0', '')
-                except TypeError:
-                    # Names are UTF-8 encoded, but not data
-                    name = name.decode('utf-8').replace('\0', '')
-
-                if addr in old_lights:
-                    light = old_lights[addr]
-                    light.update_name(name)
-                    self.__logger.debug('Old light: %x', addr)
-                else:
-                    light = Light(self, addr, name)
-                    self.__logger.debug('New light: %x', addr)
-
-                (devicetype, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
+                (type_id, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
                  on, lum, temp, red, green, blue) = struct.unpack(
                      '<6BH2BH3Bx', stat)
+                if not DeviceSubType.has_value(type_id):
+                    self.__logger.warning(
+                        'Unknown device type id: %s. Please report to '
+                        'https://github.com/tfriedel/python-lightify', type_id)
+
+                name = name.decode('utf-8').replace('\0', '')
                 groups = [16 - i for i, val in enumerate(format(groups, '016b'))
                           if val == '1']
                 version = '%02d%02d%02d%d' % (ver1_1, ver1_2, ver1_3, ver1_4)
 
-                self.__logger.debug('name:       %s', name)
-                self.__logger.debug('reachable:  %d', reachable)
-                self.__logger.debug('last seen:  %d', last_seen)
-                self.__logger.debug('onoff:      %d', on)
-                self.__logger.debug('lum:        %d', lum)
-                self.__logger.debug('temp:       %d', temp)
-                self.__logger.debug('red:        %d', red)
-                self.__logger.debug('green:      %d', green)
-                self.__logger.debug('blue:       %d', blue)
-                self.__logger.debug('devicetype: %d', devicetype)
-                self.__logger.debug('groups:     %s', groups)
-                self.__logger.debug('version:    %s', version)
+                if addr in old_lights:
+                    light = old_lights[addr]
+                    self.__logger.debug('Old light: %x', addr)
+                else:
+                    light = Light(self, addr, type_id)
+                    self.__logger.debug('New light: %x', addr)
+
+                self.__logger.debug('name:      %s', name)
+                self.__logger.debug('reachable: %d', reachable)
+                self.__logger.debug('last seen: %d', last_seen)
+                self.__logger.debug('onoff:     %d', on)
+                self.__logger.debug('lum:       %d', lum)
+                self.__logger.debug('temp:      %d', temp)
+                self.__logger.debug('red:       %d', red)
+                self.__logger.debug('green:     %d', green)
+                self.__logger.debug('blue:      %d', blue)
+                self.__logger.debug('type id:   %d', type_id)
+                self.__logger.debug('groups:    %s', groups)
+                self.__logger.debug('version:   %s', version)
 
                 light.update_status(reachable, last_seen, on, lum, temp, red,
-                                    green, blue, devicetype, groups, version)
+                                    green, blue, name, groups, version)
 
                 new_lights[addr] = light
 
