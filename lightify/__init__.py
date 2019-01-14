@@ -126,6 +126,7 @@ class Scene:
         self.__conn = conn
         self.__idx = idx
         self.__name = name
+        self.__deleted = False
 
     def name(self):
         """
@@ -139,11 +140,19 @@ class Scene:
         """
         return self.__idx
 
+    def mark_deleted(self):
+        """ mark the scene as deleted from gateway
+        """
+        self.__deleted = True
+
     def activate(self):
         """ activate the scene
 
         :return:
         """
+        if self.__deleted:
+            return
+
         command = self.build_command(COMMAND_ACTIVATE_SCENE, '')
         self.__conn.send(command)
 
@@ -486,6 +495,7 @@ class Group:
         self.__idx = idx
         self.__name = name
         self.__lights = []
+        self.__deleted = False
 
     def name(self):
         """
@@ -586,12 +596,20 @@ class Group:
         """
         self.__lights = lights
 
+    def mark_deleted(self):
+        """ mark the group as deleted from gateway
+        """
+        self.__deleted = True
+
     def set_onoff(self, on):
         """ set on/off for the group's lights
 
         :param on: true/false
         :return:
         """
+        if self.__deleted:
+            return
+
         on = bool(on)
         command = self.__conn.build_onoff(self, on)
         self.__conn.send(command)
@@ -608,6 +626,9 @@ class Group:
         :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
+        if self.__deleted:
+            return
+
         lum = min(MAX_LUMINANCE, lum)
         command = self.__conn.build_luminance(self, lum, time)
         self.__conn.send(command)
@@ -624,6 +645,9 @@ class Group:
         :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
+        if self.__deleted:
+            return
+
         temp = max(MIN_TEMPERATURE, temp)
         temp = min(MAX_TEMPERATURE, temp)
         command = self.__conn.build_temp(self, temp, time)
@@ -643,6 +667,9 @@ class Group:
         :param time: transition time in 1/10 seconds, 0 to disable transition
         :return:
         """
+        if self.__deleted:
+            return
+
         red = min(red, MAX_COLOUR)
         green = min(green, MAX_COLOUR)
         blue = min(blue, MAX_COLOUR)
@@ -968,7 +995,7 @@ class Lightify:
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of groups: %d', num)
-            groups = {}
+            new_groups = {}
 
             for i in range(0, num):
                 pos = 9 + i * 18
@@ -977,11 +1004,25 @@ class Lightify:
                 (idx, name) = struct.unpack('<H16s', payload)
                 name = name.decode('utf-8').replace('\0', '')
 
-                self.__logger.debug('Group index %d: %s', idx, name)
-                group = Group(self, idx, name)
-                groups[name] = group
+                if name in self.__groups and self.__groups[name].idx() == idx:
+                    group = self.__groups[name]
+                    self.__logger.debug('Old group %d: %s', idx, name)
+                else:
+                    group = Group(self, idx, name)
+                    self.__logger.debug('New group %d: %s', idx, name)
 
-            self.__groups = groups
+                new_groups[name] = group
+
+            for name in self.__groups:
+                if (not name in new_groups or
+                        self.__groups[name].idx() != new_groups[name].idx()):
+                    self.__groups[name].mark_deleted()
+                    del self.__groups[name]
+
+            for name in new_groups:
+                if not name in self.__groups:
+                    self.__groups[name] = new_groups[name]
+
             self.update_group_lights()
 
     def update_group_lights(self):
@@ -1016,7 +1057,7 @@ class Lightify:
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of scenes: %d', num)
-            scenes = {}
+            new_scenes = {}
 
             for i in range(0, num):
                 pos = 9 + i * 20
@@ -1025,11 +1066,24 @@ class Lightify:
                 (idx, name) = struct.unpack('<Bx16s2x', payload)
                 name = name.decode('utf-8').replace('\0', '')
 
-                self.__logger.debug('Scene index %d: %s', idx, name)
-                scene = Scene(self, idx, name)
-                scenes[name] = scene
+                if name in self.__scenes and self.__scenes[name].idx() == idx:
+                    scene = self.__scenes[name]
+                    self.__logger.debug('Old scene %d: %s', idx, name)
+                else:
+                    scene = Scene(self, idx, name)
+                    self.__logger.debug('New scene %d: %s', idx, name)
 
-            self.__scenes = scenes
+                new_scenes[name] = scene
+
+            for name in self.__scenes:
+                if (not name in new_scenes or
+                        self.__scenes[name].idx() != new_scenes[name].idx()):
+                    self.__scenes[name].mark_deleted()
+                    del self.__scenes[name]
+
+            for name in new_scenes:
+                if not name in self.__scenes:
+                    self.__scenes[name] = new_scenes[name]
 
     def send(self, data, reconnect=True):
         """ send the packet 'data' to the gateway and return the received packet
@@ -1118,7 +1172,6 @@ class Lightify:
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of lights: %d', num)
-            old_lights = self.__lights
             new_lights = {}
 
             for i in range(0, num):
@@ -1151,8 +1204,8 @@ class Lightify:
                           if val == '1']
                 version = '%02d%02d%02d%d' % (ver1_1, ver1_2, ver1_3, ver1_4)
 
-                if addr in old_lights:
-                    light = old_lights[addr]
+                if addr in self.__lights:
+                    light = self.__lights[addr]
                     self.__logger.debug('Old light: %x', addr)
                 else:
                     light = Light(self, addr, type_id)
@@ -1176,9 +1229,13 @@ class Lightify:
 
                 new_lights[addr] = light
 
-            for addr in old_lights:
+            for addr in self.__lights:
                 if not addr in new_lights:
-                    old_lights[addr].mark_deleted()
+                    self.__lights[addr].mark_deleted()
+                    del self.__lights[addr]
 
-            self.__lights = new_lights
+            for addr in new_lights:
+                if not addr in self.__lights:
+                    self.__lights[addr] = new_lights[addr]
+
             self.update_group_lights()
