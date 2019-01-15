@@ -22,7 +22,7 @@
 #
 
 #
-# TODO: Support for motion sensors
+# TODO: Support for sensors
 #
 
 import binascii
@@ -202,7 +202,7 @@ class Light:
             self.__red = 0
             self.__green = 0
             self.__blue = 0
-            self.__supported_features = ()
+            self.__supported_features = set()
         else:
             self.__lum = MAX_LUMINANCE
             self.__temp = MIN_TEMPERATURE
@@ -211,14 +211,14 @@ class Light:
             self.__blue = MAX_COLOUR
 
             if devicetype == DeviceType.PLUG:
-                self.__supported_features = ('on',)
+                self.__supported_features = set(('on',))
             elif devicesubtype in (DeviceSubType.LIGHT_NON_SOFTSWITCH,
                                    DeviceSubType.LIGHT_FIXED_WHITE):
-                self.__supported_features = ('on', 'lum')
+                self.__supported_features = set(('on', 'lum'))
             elif devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
-                self.__supported_features = ('on', 'lum', 'temp')
+                self.__supported_features = set(('on', 'lum', 'temp'))
             else:
-                self.__supported_features = ('on', 'lum', 'temp', 'rgb')
+                self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
 
     def name(self):
         """
@@ -318,7 +318,7 @@ class Light:
 
     def supported_features(self):
         """
-        :return: tuple of supported features (on, lum, temp, rgb)
+        :return: set of supported features (on, lum, temp, rgb)
         """
         return self.__supported_features
 
@@ -525,28 +525,31 @@ class Group:
 
     def supported_features(self):
         """
-        :return: tuple of supported features (on, lum, temp, rgb)
+        :return: set of supported features (on, lum, temp, rgb)
         """
         features = [self.__conn.lights()[addr].supported_features()
                     for addr in self.__lights if addr in self.__conn.lights()]
-        features = list(set(sum(features, ())))
+        features = set.union(*features)
         return features
 
-    def lights_attribute(self, attr):
+    def reachable(self):
+        """
+        :return: true if any of the group's lights is reachable, false otherwise
+        """
+        return any(self.__conn.lights()[addr].reachable()
+                   for addr in self.__lights if addr in self.__conn.lights())
+
+    def lights_attribute(self, attr, feature):
         """ do a best guess about the group's lights attribute
 
         :param attr: attribute name
+        :param feature: supported feature for ordering
         :return: guessed attribute value
         """
         lights = [self.__conn.lights()[addr] for addr in self.__lights
                   if addr in self.__conn.lights()]
         if not lights:
             return 0
-
-        if attr in ('red', 'green', 'blue'):
-            feature = 'rgb'
-        else:
-            feature = attr
 
         lights = [(feature in light.supported_features(),
                    getattr(light, attr)()) for light in lights]
@@ -557,37 +560,37 @@ class Group:
         """
         :return: best guess about the group's lights luminance (brightness)
         """
-        return self.lights_attribute('lum')
+        return self.lights_attribute('lum', 'lum')
 
     def temp(self):
         """
         :return: best guess about the group's lights colour temperature in kelvin
         """
-        return self.lights_attribute('temp')
+        return self.lights_attribute('temp', 'temp')
 
     def red(self):
         """
         :return: best guess about the group's lights amount of red
         """
-        return self.lights_attribute('red')
+        return self.lights_attribute('red', 'rgb')
 
     def green(self):
         """
         :return: best guess about the group's lights amount of green
         """
-        return self.lights_attribute('green')
+        return self.lights_attribute('green', 'rgb')
 
     def blue(self):
         """
         :return: best guess about the group's lights amount of blue
         """
-        return self.lights_attribute('blue')
+        return self.lights_attribute('blue', 'rgb')
 
     def rgb(self):
         """
         :return: tuple containing (red, green, blue)
         """
-        return self.lights_attribute('rgb')
+        return self.lights_attribute('rgb', 'rgb')
 
     def set_lights(self, lights):
         """ set group's lights
