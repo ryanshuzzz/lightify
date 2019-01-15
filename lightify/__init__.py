@@ -81,12 +81,13 @@ class DeviceSubType(Enum):
     LIGHT_FIXED_WHITE = 4
     LIGHT_RGB = 10
     PLUG = 16
+    CONTACTSENSOR = 31
     MOTIONSENSOR = 32
     SWITCH_TWO_BUTTONS = 64
     SWITCH_FOUR_BUTTONS = 65
-    SWITCH_UNKNOWN1 = 66 # not sure atm if these IDs really exist
-    SWITCH_UNKNOWN2 = 67
-    SWITCH_UNKNOWN3 = 68
+    SWITCH_MINI = 66
+    SWITCH_UNKNOWN_67 = 67 # not sure atm if these IDs really exist
+    SWITCH_UNKNOWN_68 = 68
 
     @classmethod
     def has_value(cls, value):
@@ -101,17 +102,17 @@ class DeviceType(Enum):
     """
     LIGHT = 1
     PLUG = 2
-    MOTIONSENSOR = 3
+    SENSOR = 3
     SWITCH = 4
 
 
 DEVICESUBTYPE = defaultdict(lambda: DeviceSubType.LIGHT_RGB,
                             {item.value:item for item in DeviceSubType})
 DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT,
-                         {16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
-                          64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
-                          66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
-                          68: DeviceType.SWITCH})
+                         {16: DeviceType.PLUG, 31: DeviceType.SENSOR,
+                          32: DeviceType.SENSOR, 64: DeviceType.SWITCH,
+                          65: DeviceType.SWITCH, 66: DeviceType.SWITCH,
+                          67: DeviceType.SWITCH, 68: DeviceType.SWITCH})
 
 
 class Scene:
@@ -195,7 +196,7 @@ class Light:
         self.__devicesubtype = devicesubtype
         self.__devicetype = devicetype
 
-        if devicetype in (DeviceType.MOTIONSENSOR, DeviceType.SWITCH):
+        if devicetype in (DeviceType.SENSOR, DeviceType.SWITCH):
             self.__lum = 0
             self.__temp = 0
             self.__red = 0
