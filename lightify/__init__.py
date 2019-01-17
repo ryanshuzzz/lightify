@@ -63,8 +63,11 @@ FLAG_GLOBAL = 0x02
 
 DEFAULT_ALPHA = 0xff
 DEFAULT_LUMINANCE = 1
-MIN_TEMPERATURE = 2700
-MAX_TEMPERATURE = 6500
+DEFAULT_TEMPERATURE = 2700
+MIN_TEMPERATURE_TUNABLE_WHITE = 2700
+MAX_TEMPERATURE_TUNABLE_WHITE = 6500
+MIN_TEMPERATURE_RGB = 1900
+MAX_TEMPERATURE_RGB = 6500
 MAX_LUMINANCE = 100
 MAX_COLOUR = 255
 LAST_SEEN_DURATION_MINUTES = 5
@@ -203,22 +206,33 @@ class Light:
             self.__green = 0
             self.__blue = 0
             self.__supported_features = set()
+            self.__min_temp = self.__temp
+            self.__max_temp = self.__temp
         else:
             self.__lum = MAX_LUMINANCE
-            self.__temp = MIN_TEMPERATURE
+            self.__temp = DEFAULT_TEMPERATURE
             self.__red = MAX_COLOUR
             self.__green = MAX_COLOUR
             self.__blue = MAX_COLOUR
 
             if devicetype == DeviceType.PLUG:
                 self.__supported_features = set(('on',))
+                self.__min_temp = self.__temp
+                self.__max_temp = self.__temp
             elif devicesubtype in (DeviceSubType.LIGHT_NON_SOFTSWITCH,
                                    DeviceSubType.LIGHT_FIXED_WHITE):
                 self.__supported_features = set(('on', 'lum'))
+                self.__min_temp = self.__temp
+                self.__max_temp = self.__temp
             elif devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
                 self.__supported_features = set(('on', 'lum', 'temp'))
+                self.__min_temp = MIN_TEMPERATURE_TUNABLE_WHITE
+                self.__max_temp = MAX_TEMPERATURE_TUNABLE_WHITE
             else:
                 self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
+                self.__min_temp = MIN_TEMPERATURE_RGB
+                self.__max_temp = MAX_TEMPERATURE_RGB
+
 
     def name(self):
         """
@@ -260,6 +274,24 @@ class Light:
         """
         :return: colour temperature in kelvin
         """
+        return self.__temp
+
+    def min_temp(self):
+        """
+        :return: minimum supported colour temperature in kelvin
+        """
+        if 'temp' in self.__supported_features:
+            return self.__min_temp
+
+        return self.__temp
+
+    def max_temp(self):
+        """
+        :return: maximum supported colour temperature in kelvin
+        """
+        if 'temp' in self.__supported_features:
+            return self.__max_temp
+
         return self.__temp
 
     def red(self):
@@ -434,8 +466,8 @@ class Light:
         if not 'temp' in self.__supported_features:
             return
 
-        temp = max(MIN_TEMPERATURE, temp)
-        temp = min(MAX_TEMPERATURE, temp)
+        temp = max(self.min_temp(), temp)
+        temp = min(self.max_temp(), temp)
         self.__temp = temp
 
         if send:
@@ -537,6 +569,22 @@ class Group:
         :return: true if any of the group's lights is reachable, false otherwise
         """
         return any(self.__conn.lights()[addr].reachable()
+                   for addr in self.__lights if addr in self.__conn.lights())
+
+    def min_temp(self):
+        """
+        :return: minimum supported colour temperature of the group's lights
+                 in kelvin
+        """
+        return min(self.__conn.lights()[addr].min_temp()
+                   for addr in self.__lights if addr in self.__conn.lights())
+
+    def max_temp(self):
+        """
+        :return: maximum supported colour temperature of the group's lights
+                 in kelvin
+        """
+        return max(self.__conn.lights()[addr].max_temp()
                    for addr in self.__lights if addr in self.__conn.lights())
 
     def lights_attribute(self, attr, feature):
@@ -652,8 +700,8 @@ class Group:
         if self.__deleted:
             return
 
-        temp = max(MIN_TEMPERATURE, temp)
-        temp = min(MAX_TEMPERATURE, temp)
+        temp = max(self.min_temp(), temp)
+        temp = min(self.max_temp(), temp)
         command = self.__conn.build_temp(self, temp, time)
         self.__conn.send(command)
 
