@@ -193,6 +193,7 @@ class Light:
         self.__type_id = type_id
         self.__devicesubtype = devicesubtype
         self.__devicetype = devicetype
+        self.__idx = 0
 
         if devicetype in (DeviceType.SENSOR, DeviceType.SWITCH):
             self.__lum = 0
@@ -233,6 +234,12 @@ class Light:
         :return: name of the light
         """
         return self.__name
+
+    def idx(self):
+        """
+        :return: index of the light provided by the gateway
+        """
+        return self.__idx
 
     def addr(self):
         """
@@ -360,7 +367,7 @@ class Light:
         self.__deleted = True
 
     def update_status(self, reachable, last_seen, on, lum, temp, red, green,
-                      blue, name, groups, version):
+                      blue, name, groups, version, idx):
         """ update internal representation
             does not send out a command to the light source!
 
@@ -375,6 +382,7 @@ class Light:
         :param name: name of the light
         :param groups: list of associated group indices
         :param version: firmware version
+        :param idx: index of the light provided by the gateway
         :return:
         """
         self.__reachable = bool(reachable)
@@ -382,6 +390,7 @@ class Light:
         self.__name = name
         self.__groups = groups
         self.__version = version
+        self.__idx = idx
 
         if 'on' in self.__supported_features:
             self.__on = bool(on)
@@ -1128,13 +1137,25 @@ class Lightify:
 
             self.update_group_lights()
 
+    def lights_sorted_byidx(self):
+        """ get the lights sorted by light idx
+            needed to keep lists of group lights backward compatible with
+            the previous version of the library in order not to break existing
+            integrations
+
+        :return: list of light mac addresses sorted by light idx
+        """
+        return [i[0] for i in sorted(
+            [(light.addr(), light.idx())
+             for light in self.__lights.values()], key=lambda i: i[1])]
+
     def update_group_lights(self):
         """ update the list of group's light mac addresses for all groups
 
         :return:
         """
         for group in self.__groups.values():
-            lights = [addr for addr in self.__lights
+            lights = [addr for addr in self.lights_sorted_byidx()
                       if group.idx() in self.__lights[addr].groups()]
             group.set_lights(lights)
             group.update_status()
@@ -1312,7 +1333,7 @@ class Lightify:
                         'https://github.com/tfriedel/python-lightify', type_id)
 
                 name = name.decode('utf-8').replace('\0', '')
-                groups = [16 - i for i, val in enumerate(format(groups, '016b'))
+                groups = [16 - j for j, val in enumerate(format(groups, '016b'))
                           if val == '1']
                 version = '%02d%02d%02d%d' % (ver1_1, ver1_2, ver1_3, ver1_4)
 
@@ -1337,7 +1358,7 @@ class Lightify:
                 self.__logger.debug('version:   %s', version)
 
                 light.update_status(reachable, last_seen, on, lum, temp, red,
-                                    green, blue, name, groups, version)
+                                    green, blue, name, groups, version, i)
 
                 new_lights[addr] = light
 
