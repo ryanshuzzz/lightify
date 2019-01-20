@@ -186,7 +186,7 @@ class Light:
         self.__name = ''
         self.__reachable = True
         self.__last_seen = 0
-        self.__on = False
+        self.__onoff = False
         self.__groups = []
         self.__version = ''
         self.__deleted = False
@@ -263,7 +263,7 @@ class Light:
         """
         :return: true if the status of the light is on, false otherwise
         """
-        return self.__on
+        return self.__onoff
 
     def lum(self):
         """
@@ -366,14 +366,14 @@ class Light:
         """
         self.__deleted = True
 
-    def update_status(self, reachable, last_seen, on, lum, temp, red, green,
+    def update_status(self, reachable, last_seen, onoff, lum, temp, red, green,
                       blue, name, groups, version, idx):
         """ update internal representation
             does not send out a command to the light source!
 
-        :param reachable: if the light is reachable or not
+        :param reachable: whether the light is reachable or not
         :param last_seen: time since last seen by gateway
-        :param on: if the light is on or off
+        :param onoff: whether the light is on or off
         :param lum: luminance (brightness)
         :param temp: colour temperature
         :param red: amount of red
@@ -393,7 +393,7 @@ class Light:
         self.__idx = idx
 
         if 'on' in self.__supported_features:
-            self.__on = bool(on)
+            self.__onoff = bool(onoff)
 
         if 'lum' in self.__supported_features:
             self.__lum = lum
@@ -406,10 +406,10 @@ class Light:
             self.__green = green
             self.__blue = blue
 
-    def set_onoff(self, on, send=True):
+    def set_onoff(self, onoff, send=True):
         """ set on/off
 
-        :param on: true/false
+        :param onoff: true/false
         :param send: whether to send a command to gateway
         :return:
         """
@@ -419,13 +419,13 @@ class Light:
         if not 'on' in self.__supported_features:
             return
 
-        on = bool(on)
-        self.__on = on
-        if on and self.__lum == 0:
+        onoff = bool(onoff)
+        self.__onoff = onoff
+        if onoff and self.__lum == 0:
             self.__lum = DEFAULT_LUMINANCE
 
         if send:
-            command = self.__conn.build_onoff(self, on)
+            command = self.__conn.build_onoff(self, onoff)
             self.__conn.send(command)
             self.__conn.update_lights_meta()
 
@@ -447,10 +447,10 @@ class Light:
         self.__lum = lum
         if lum > 0:
             self.__lum = lum
-            self.__on = True
+            self.__onoff = True
         elif lum == 0:
             self.__lum = DEFAULT_LUMINANCE
-            self.__on = False
+            self.__onoff = False
 
         if send:
             command = self.__conn.build_luminance(self, lum, transition)
@@ -608,7 +608,7 @@ class Group:
         return any(self.__conn.lights()[addr].reachable()
                    for addr in self.__lights if addr in self.__conn.lights())
 
-    def lights_attribute(self, attr, feature):
+    def _lights_attribute(self, attr, feature):
         """ do a best guess about the group's lights attribute
 
         :param attr: attribute name
@@ -629,38 +629,38 @@ class Group:
         """
         :return: best guess about the group's lights luminance (brightness)
         """
-        return self.lights_attribute('lum', 'lum')
+        return self._lights_attribute('lum', 'lum')
 
     def temp(self):
         """
         :return: best guess about the group's lights colour temperature in
                  kelvin
         """
-        return self.lights_attribute('temp', 'temp')
+        return self._lights_attribute('temp', 'temp')
 
     def red(self):
         """
         :return: best guess about the group's lights amount of red
         """
-        return self.lights_attribute('red', 'rgb')
+        return self._lights_attribute('red', 'rgb')
 
     def green(self):
         """
         :return: best guess about the group's lights amount of green
         """
-        return self.lights_attribute('green', 'rgb')
+        return self._lights_attribute('green', 'rgb')
 
     def blue(self):
         """
         :return: best guess about the group's lights amount of blue
         """
-        return self.lights_attribute('blue', 'rgb')
+        return self._lights_attribute('blue', 'rgb')
 
     def rgb(self):
         """
         :return: tuple containing (red, green, blue)
         """
-        return self.lights_attribute('rgb', 'rgb')
+        return self._lights_attribute('rgb', 'rgb')
 
     def set_lights(self, lights):
         """ set group's lights
@@ -675,24 +675,24 @@ class Group:
         """
         self.__deleted = True
 
-    def set_onoff(self, on):
+    def set_onoff(self, onoff):
         """ set on/off for the group's lights
 
-        :param on: true/false
+        :param onoff: true/false
         :return:
         """
         if self.__deleted:
             return
 
-        on = bool(on)
-        command = self.__conn.build_onoff(self, on)
+        onoff = bool(onoff)
+        command = self.__conn.build_onoff(self, onoff)
         self.__conn.send(command)
         self.__conn.update_lights_meta()
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
-                light.set_onoff(on, send=False)
+                light.set_onoff(onoff, send=False)
 
     def set_luminance(self, lum, transition):
         """ set luminance (brightness) for the group's lights
@@ -804,7 +804,7 @@ class Lightify:
         self.__lock = threading.RLock()
         self.__host = host
         self.__sock = None
-        self.connect()
+        self._connect()
 
     def __del__(self):
         try:
@@ -814,7 +814,7 @@ class Lightify:
 
         self.__sock.close()
 
-    def connect(self):
+    def _connect(self):
         """ establish a connection with the lightify gateway
 
         :return:
@@ -823,6 +823,14 @@ class Lightify:
             self.__sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.__sock.settimeout(GATEWAY_TIMEOUT_SECONDS)
             self.__sock.connect((self.__host, PORT))
+
+    def _next_seq(self):
+        """
+        :return: next sequence number
+        """
+        with self.__lock:
+            self.__seq = (self.__seq + 1) % 256
+            return self.__seq
 
     def update_lights_meta(self):
         """ update lights meta information like hash and changed timestamp
@@ -900,14 +908,6 @@ class Lightify:
 
         return None
 
-    def next_seq(self):
-        """
-        :return: next sequence number
-        """
-        with self.__lock:
-            self.__seq = (self.__seq + 1) % 256
-            return self.__seq
-
     def build_global_command(self, command, data):
         """ build a global command
 
@@ -946,7 +946,7 @@ class Lightify:
             0,
             0,
             0x07,
-            self.next_seq()
+            self._next_seq()
         ) + addr + data
 
         return result
@@ -990,15 +990,15 @@ class Lightify:
         )
 
     @staticmethod
-    def build_onoff(item, on):
+    def build_onoff(item, onoff):
         """
         :param item: Light or Group object
-        :param on: true/false
+        :param onoff: true/false
         :return: binary command to set on/off for the light/group
         """
         return item.build_command(
             COMMAND_ONOFF,
-            struct.pack('<B', on)
+            struct.pack('<B', onoff)
         )
 
     @staticmethod
@@ -1098,12 +1098,13 @@ class Lightify:
     def update_group_list(self):
         """ update all groups
 
-        :return:
+        :return: dict from group name to Group object of newly
+                 discovered groups
         """
         with self.__lock:
+            self.__groups_updated = time.time()
             command = self.build_group_list()
             data = self.send(command)
-            self.__groups_updated = time.time()
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of groups: %d', num)
@@ -1130,14 +1131,17 @@ class Lightify:
                         self.__groups[name].idx() != new_groups[name].idx()):
                     self.__groups[name].mark_deleted()
                     del self.__groups[name]
+                else:
+                    del new_groups[name]
 
             for name in new_groups:
-                if not name in self.__groups:
-                    self.__groups[name] = new_groups[name]
+                self.__groups[name] = new_groups[name]
 
             self.update_group_lights()
+            return new_groups
 
-    def lights_sorted_byidx(self):
+
+    def _lights_sorted_byidx(self):
         """ get the lights sorted by light idx
             needed to keep lists of group lights backward compatible with
             the previous version of the library in order not to break existing
@@ -1155,7 +1159,7 @@ class Lightify:
         :return:
         """
         for group in self.__groups.values():
-            lights = [addr for addr in self.lights_sorted_byidx()
+            lights = [addr for addr in self._lights_sorted_byidx()
                       if group.idx() in self.__lights[addr].groups()]
             group.set_lights(lights)
             group.update_status()
@@ -1173,12 +1177,13 @@ class Lightify:
     def update_scene_list(self):
         """ update all scenes
 
-        :return:
+        :return: dict from scene name to Scene object of newly
+                 discovered scenes
         """
         with self.__lock:
+            self.__scenes_updated = time.time()
             command = self.build_scene_list()
             data = self.send(command)
-            self.__scenes_updated = time.time()
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of scenes: %d', num)
@@ -1205,10 +1210,13 @@ class Lightify:
                         self.__scenes[name].idx() != new_scenes[name].idx()):
                     self.__scenes[name].mark_deleted()
                     del self.__scenes[name]
+                else:
+                    del new_scenes[name]
 
             for name in new_scenes:
-                if not name in self.__scenes:
-                    self.__scenes[name] = new_scenes[name]
+                self.__scenes[name] = new_scenes[name]
+
+            return new_scenes
 
     def send(self, data, reconnect=True):
         """ send the packet 'data' to the gateway and return the received packet
@@ -1251,7 +1259,7 @@ class Lightify:
                 self.__logger.warning('socketError: %s', err)
                 if reconnect:
                     self.__logger.warning('Trying to reconnect')
-                    self.connect()
+                    self._connect()
                     return self.send(data, reconnect=False)
 
                 raise err
@@ -1263,7 +1271,7 @@ class Lightify:
             deprecated, for backward compatibility only!
 
         :param light: Light object
-        :return: tuple containing (on, lum, temp, red, green, blue)
+        :return: tuple containing (onoff, lum, temp, red, green, blue)
         """
         with self.__lock:
             command = self.build_light_status(light)
@@ -1273,33 +1281,34 @@ class Lightify:
             if len(data) == unreachable_data_len:
                 return None, None, None, None, None, None
 
-            (on, lum, temp, red, green, blue) = struct.unpack(
+            (onoff, lum, temp, red, green, blue) = struct.unpack(
                 '<19x2BH3B4x', data)
 
             self.__logger.debug('Light: %x', light.addr())
-            self.__logger.debug('onoff: %d', on)
+            self.__logger.debug('onoff: %d', onoff)
             self.__logger.debug('lum:   %d', lum)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('red:   %d', red)
             self.__logger.debug('green: %d', green)
             self.__logger.debug('blue:  %d', blue)
 
-            return on, lum, temp, red, green, blue
+            return onoff, lum, temp, red, green, blue
 
     def update_all_light_status(self):
         """ update the status of all lights
 
-        :return:
+        :return: dict from light mac address to Light object of newly
+                 discovered lights
         """
         with self.__lock:
+            self.__lights_updated = time.time()
             command = self.build_all_light_status()
             data = self.send(command)
 
-            self.__lights_updated = time.time()
             old_hash = self.__lights_hash
             self.__lights_hash = hashlib.md5(data[7:]).hexdigest()
             if old_hash == self.__lights_hash:
-                return
+                return {}
 
             self.__lights_changed = self.__lights_updated
 
@@ -1322,10 +1331,10 @@ class Lightify:
                     self.__logger.warning('struct.error: %s', err)
                     self.__logger.warning('payload: %s',
                                           binascii.hexlify(payload))
-                    return
+                    return {}
 
                 (type_id, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
-                 on, lum, temp, red, green, blue) = struct.unpack(
+                 onoff, lum, temp, red, green, blue) = struct.unpack(
                      '<6BH2BH3Bx', stat)
                 if not DeviceSubType.has_value(type_id):
                     self.__logger.warning(
@@ -1347,7 +1356,7 @@ class Lightify:
                 self.__logger.debug('name:      %s', name)
                 self.__logger.debug('reachable: %d', reachable)
                 self.__logger.debug('last seen: %d', last_seen)
-                self.__logger.debug('onoff:     %d', on)
+                self.__logger.debug('onoff:     %d', onoff)
                 self.__logger.debug('lum:       %d', lum)
                 self.__logger.debug('temp:      %d', temp)
                 self.__logger.debug('red:       %d', red)
@@ -1356,17 +1365,20 @@ class Lightify:
                 self.__logger.debug('type id:   %d', type_id)
                 self.__logger.debug('groups:    %s', groups)
                 self.__logger.debug('version:   %s', version)
+                self.__logger.debug('idx:   %s', i)
 
-                light.update_status(reachable, last_seen, on, lum, temp, red,
+                light.update_status(reachable, last_seen, onoff, lum, temp, red,
                                     green, blue, name, groups, version, i)
-
                 new_lights[addr] = light
 
             for addr in self.__lights:
                 if not addr in new_lights:
                     self.__lights[addr].mark_deleted()
                     del self.__lights[addr]
+                else:
+                    del new_lights[addr]
 
             for addr in new_lights:
-                if not addr in self.__lights:
-                    self.__lights[addr] = new_lights[addr]
+                self.__lights[addr] = new_lights[addr]
+
+            return new_lights
