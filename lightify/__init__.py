@@ -1122,14 +1122,24 @@ class Lightify:
 
         return groups
 
-    def update_group_list(self):
+    def update_group_list(self, throttling_interval=None):
         """ update all groups
 
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
         :return: dict from group name to Group object of newly
                  discovered groups
         """
+        if (throttling_interval and
+                time.time() < self.__groups_updated + throttling_interval):
+            return {}
+
         with self.__lock:
-            self.__groups_updated = time.time()
+            if (throttling_interval and
+                    time.time() < self.__groups_updated + throttling_interval):
+                return {}
+
             command = self.build_group_list()
             data = self.send(command)
 
@@ -1166,6 +1176,7 @@ class Lightify:
 
             self.update_group_lights()
             self.update_group_scenes()
+            self.__groups_updated = time.time()
             return new_groups
 
 
@@ -1212,14 +1223,24 @@ class Lightify:
         self.update_all_light_status()
         return group.lights()
 
-    def update_scene_list(self):
+    def update_scene_list(self, throttling_interval=None):
         """ update all scenes
 
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
         :return: dict from scene name to Scene object of newly
                  discovered scenes
         """
+        if (throttling_interval and
+                time.time() < self.__scenes_updated + throttling_interval):
+            return {}
+
         with self.__lock:
-            self.__scenes_updated = time.time()
+            if (throttling_interval and
+                    time.time() < self.__scenes_updated + throttling_interval):
+                return {}
+
             command = self.build_scene_list()
             data = self.send(command)
 
@@ -1260,6 +1281,7 @@ class Lightify:
             for name in new_scenes:
                 self.__scenes[name] = new_scenes[name]
 
+            self.__scenes_updated = time.time()
             return new_scenes
 
     def send(self, data, reconnect=True):
@@ -1338,23 +1360,32 @@ class Lightify:
 
             return onoff, lum, temp, red, green, blue
 
-    def update_all_light_status(self):
+    def update_all_light_status(self, throttling_interval=None):
         """ update the status of all lights
 
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
         :return: dict from light mac address to Light object of newly
                  discovered lights
         """
+        if (throttling_interval and
+                time.time() < self.__lights_updated + throttling_interval):
+            return {}
+
         with self.__lock:
-            self.__lights_updated = time.time()
+            if (throttling_interval and
+                    time.time() < self.__lights_updated + throttling_interval):
+                return {}
+
             command = self.build_all_light_status()
             data = self.send(command)
 
             old_hash = self.__lights_hash
             self.__lights_hash = hashlib.md5(data[7:]).hexdigest()
             if old_hash == self.__lights_hash:
+                self.__lights_updated = time.time()
                 return {}
-
-            self.__lights_changed = self.__lights_updated
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of lights: %d', num)
@@ -1425,4 +1456,6 @@ class Lightify:
             for addr in new_lights:
                 self.__lights[addr] = new_lights[addr]
 
+            self.__lights_updated = time.time()
+            self.__lights_changed = self.__lights_updated
             return new_lights
