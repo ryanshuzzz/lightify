@@ -173,7 +173,8 @@ class Scene:
         self.__conn.update_lights_meta()
 
     def __str__(self):
-        return '<scene %s: %s>' % (self.__idx, self.__name)
+        return '<scene %s: %s, group: %s>' % (self.__idx, self.__name,
+                                              self.__group)
 
 
 class Light:
@@ -544,6 +545,7 @@ class Group:
         self.__idx = idx
         self.__name = name
         self.__lights = []
+        self.__scenes = []
         self.__supported_features = set()
         self.__min_temp = 0
         self.__max_temp = 0
@@ -566,6 +568,12 @@ class Group:
         :return: list of group's light mac addresses
         """
         return self.__lights
+
+    def scenes(self):
+        """
+        :return: list of group's scene names
+        """
+        return self.__scenes
 
     def update_status(self):
         """ update internal representation
@@ -677,6 +685,14 @@ class Group:
         :return:
         """
         self.__lights = lights
+
+    def set_scenes(self, scenes):
+        """ set group's scenes
+
+        :param scenes: list of group's scene names
+        :return:
+        """
+        self.__scenes = scenes
 
     def mark_deleted(self):
         """ mark the group as deleted from gateway
@@ -878,6 +894,9 @@ class Lightify:
         """
         if not self.__lights_updated:
             self.update_all_light_status()
+
+        if not self.__scenes_updated:
+            self.update_scene_list()
 
         if not self.__groups_updated:
             self.update_group_list()
@@ -1146,6 +1165,7 @@ class Lightify:
                 self.__groups[name] = new_groups[name]
 
             self.update_group_lights()
+            self.update_group_scenes()
             return new_groups
 
 
@@ -1171,6 +1191,16 @@ class Lightify:
                       if group.idx() in self.__lights[addr].groups()]
             group.set_lights(lights)
             group.update_status()
+
+    def update_group_scenes(self):
+        """ update the list of group's scenes for all groups
+
+        :return:
+        """
+        for group in self.__groups.values():
+            scenes = [name for name in self.__scenes
+                      if group.idx() == self.__scenes[name].group()]
+            group.set_scenes(scenes)
 
     def group_info(self, group):
         """ get the list of group's light mac addresses
@@ -1208,11 +1238,11 @@ class Lightify:
                 if (name in self.__scenes and self.__scenes[name].idx() == idx
                         and self.__scenes[name].group() == group):
                     scene = self.__scenes[name]
-                    self.__logger.debug('Old scene %d: %s (for group %d)', idx,
+                    self.__logger.debug('Old scene %d: %s, group: %d', idx,
                                         name, group)
                 else:
                     scene = Scene(self, idx, name, group)
-                    self.__logger.debug('New scene %d: %s (for group %d)', idx,
+                    self.__logger.debug('New scene %d: %s, group: %d', idx,
                                         name, group)
 
                 new_scenes[name] = scene
