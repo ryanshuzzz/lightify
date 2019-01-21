@@ -60,6 +60,8 @@ COMMAND_LIGHT_STATUS = 0x68
 # 52 activate scene
 # 68 light status (returns light address and light status if reachable)
 
+OUTDATED_TIMESTAMP = 1
+
 FLAG_LIGHT = 0x00
 FLAG_GLOBAL = 0x02
 
@@ -170,7 +172,7 @@ class Scene:
         command = self.__conn.build_command(COMMAND_ACTIVATE_SCENE, self.__idx,
                                             '')
         self.__conn.send(command)
-        self.__conn.update_lights_meta()
+        self.__conn.set_lights_updated()
 
     def __str__(self):
         return '<scene %s: %s, group: %s>' % (self.__idx, self.__name,
@@ -436,7 +438,7 @@ class Light:
         if send:
             command = self.__conn.build_onoff(self, onoff)
             self.__conn.send(command)
-            self.__conn.update_lights_meta()
+            self.__conn.set_lights_changed()
 
     def set_luminance(self, lum, transition, send=True):
         """ set luminance (brightness)
@@ -464,7 +466,7 @@ class Light:
         if send:
             command = self.__conn.build_luminance(self, lum, transition)
             self.__conn.send(command)
-            self.__conn.update_lights_meta()
+            self.__conn.set_lights_changed()
 
     def set_temperature(self, temp, transition, send=True):
         """ set colour temperature
@@ -487,7 +489,7 @@ class Light:
         if send:
             command = self.__conn.build_temp(self, temp, transition)
             self.__conn.send(command)
-            self.__conn.update_lights_meta()
+            self.__conn.set_lights_changed()
 
     def set_rgb(self, red, green, blue, transition, send=True):
         """ set RGB colour
@@ -516,7 +518,7 @@ class Light:
             command = self.__conn.build_colour(self, red, green, blue,
                                                transition)
             self.__conn.send(command)
-            self.__conn.update_lights_meta()
+            self.__conn.set_lights_changed()
 
     def build_command(self, command, data):
         """ build a light command
@@ -711,12 +713,13 @@ class Group:
         onoff = bool(onoff)
         command = self.__conn.build_onoff(self, onoff)
         self.__conn.send(command)
-        self.__conn.update_lights_meta()
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
                 light.set_onoff(onoff, send=False)
+
+        self.__conn.set_lights_changed()
 
     def set_luminance(self, lum, transition):
         """ set luminance (brightness) for the group's lights
@@ -731,12 +734,13 @@ class Group:
         lum = min(MAX_LUMINANCE, lum)
         command = self.__conn.build_luminance(self, lum, transition)
         self.__conn.send(command)
-        self.__conn.update_lights_meta()
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
                 light.set_luminance(lum, transition, send=False)
+
+        self.__conn.set_lights_changed()
 
     def set_temperature(self, temp, transition):
         """ set colour temperature for the group's lights
@@ -752,12 +756,13 @@ class Group:
         temp = min(self.max_temp(), temp)
         command = self.__conn.build_temp(self, temp, transition)
         self.__conn.send(command)
-        self.__conn.update_lights_meta()
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
                 light.set_temperature(temp, transition, send=False)
+
+        self.__conn.set_lights_changed()
 
     def set_rgb(self, red, green, blue, transition):
         """ set RGB colour for the group's lights
@@ -776,12 +781,13 @@ class Group:
         blue = min(blue, MAX_COLOUR)
         command = self.__conn.build_colour(self, red, green, blue, transition)
         self.__conn.send(command)
-        self.__conn.update_lights_meta()
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
                 light.set_rgb(red, green, blue, transition, send=False)
+
+        self.__conn.set_lights_changed()
 
     def build_command(self, command, data):
         """ build a group command
@@ -856,8 +862,15 @@ class Lightify:
             self.__seq = (self.__seq + 1) % 256
             return self.__seq
 
-    def update_lights_meta(self):
-        """ update lights meta information like hash and changed timestamp
+    def set_lights_updated(self):
+        """ update lights updated timestamp
+
+        :return:
+        """
+        self.__lights_updated = OUTDATED_TIMESTAMP
+
+    def set_lights_changed(self):
+        """ update lights hash and changed timestamp
 
         :return:
         """
