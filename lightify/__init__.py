@@ -123,15 +123,17 @@ DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT,
 class Scene:
     """ representation of a scene
     """
-    def __init__(self, conn, idx, name):
+    def __init__(self, conn, idx, name, group):
         """
         :param conn: Lightify object
         :param idx: index of the scene provided by the gateway
+        :param group: associated group index
         :param name: scene name
         """
         self.__conn = conn
         self.__idx = idx
         self.__name = name
+        self.__group = group
         self.__deleted = False
 
     def name(self):
@@ -145,6 +147,12 @@ class Scene:
         :return: index of the scene provided by the gateway
         """
         return self.__idx
+
+    def group(self):
+        """
+        :return: associated group index
+        """
+        return self.__group
 
     def mark_deleted(self):
         """ mark the scene as deleted from gateway
@@ -1193,21 +1201,27 @@ class Lightify:
                 pos = 9 + i * 20
                 payload = data[pos:pos + 20]
 
-                (idx, name) = struct.unpack('<Bx16s2x', payload)
+                (idx, name, group) = struct.unpack('<Bx16sH', payload)
                 name = name.decode('utf-8').replace('\0', '')
+                group = 16 - format(group, '016b').index('1')
 
-                if name in self.__scenes and self.__scenes[name].idx() == idx:
+                if (name in self.__scenes and self.__scenes[name].idx() == idx
+                        and self.__scenes[name].group() == group):
                     scene = self.__scenes[name]
-                    self.__logger.debug('Old scene %d: %s', idx, name)
+                    self.__logger.debug('Old scene %d: %s (for group %d)', idx,
+                                        name, group)
                 else:
-                    scene = Scene(self, idx, name)
-                    self.__logger.debug('New scene %d: %s', idx, name)
+                    scene = Scene(self, idx, name, group)
+                    self.__logger.debug('New scene %d: %s (for group %d)', idx,
+                                        name, group)
 
                 new_scenes[name] = scene
 
             for name in self.__scenes:
                 if (not name in new_scenes or
-                        self.__scenes[name].idx() != new_scenes[name].idx()):
+                        self.__scenes[name].idx() != new_scenes[name].idx() or
+                        self.__scenes[name].group() != new_scenes[name].group()
+                   ):
                     self.__scenes[name].mark_deleted()
                     del self.__scenes[name]
                 else:
