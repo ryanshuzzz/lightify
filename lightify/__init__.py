@@ -789,6 +789,17 @@ class Group:
 
         self.__conn.set_lights_changed()
 
+    def activate_scene(self, name):
+        """ activate a group's scene
+
+        :param name: scene name
+        :return:
+        """
+        if name in self.__scenes:
+            scene = self.__conn.scenes().get(name)
+            if scene:
+                scene.activate()
+
     def build_command(self, command, data):
         """ build a group command
 
