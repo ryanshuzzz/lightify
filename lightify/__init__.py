@@ -22,14 +22,16 @@
 #
 
 #
-# TODO: Support for motion sensors
+# TODO: Support for sensors
 #
 
 import binascii
+import hashlib
 import logging
 import socket
 import struct
 import threading
+import time
 from collections import defaultdict
 from enum import Enum
 
@@ -58,13 +60,18 @@ COMMAND_LIGHT_STATUS = 0x68
 # 52 activate scene
 # 68 light status (returns light address and light status if reachable)
 
+OUTDATED_TIMESTAMP = 1
+
 FLAG_LIGHT = 0x00
 FLAG_GLOBAL = 0x02
 
 DEFAULT_ALPHA = 0xff
 DEFAULT_LUMINANCE = 1
-MIN_TEMPERATURE = 2700
-MAX_TEMPERATURE = 6500
+DEFAULT_TEMPERATURE = 2700
+MIN_TEMPERATURE_TUNABLE_WHITE = 2700
+MAX_TEMPERATURE_TUNABLE_WHITE = 6500
+MIN_TEMPERATURE_RGB = 1900
+MAX_TEMPERATURE_RGB = 6500
 MAX_LUMINANCE = 100
 MAX_COLOUR = 255
 LAST_SEEN_DURATION_MINUTES = 5
@@ -72,20 +79,29 @@ LAST_SEEN_DURATION_MINUTES = 5
 GATEWAY_TIMEOUT_SECONDS = 10
 
 
-class DeviceTypeRaw(Enum):
-    """ raw device type as returned by lightify
+class DeviceSubType(Enum):
+    """ device sub type
+        list of known device ids may be incomplete!
     """
     LIGHT_NON_SOFTSWITCH = 1
     LIGHT_TUNABLE_WHITE = 2
     LIGHT_FIXED_WHITE = 4
     LIGHT_RGB = 10
     PLUG = 16
+    CONTACTSENSOR = 31
     MOTIONSENSOR = 32
     SWITCH_TWO_BUTTONS = 64
-    SWITCH_FOUR_BUTTONS = 65    
-    SWITCH_UNKNOWN1 = 66 # not sure atm if these IDs really exist
-    SWITCH_UNKNOWN2 = 67
-    SWITCH_UNKNOWN3 = 68
+    SWITCH_FOUR_BUTTONS = 65
+    SWITCH_MINI = 66
+    SWITCH_UNKNOWN_67 = 67 # not sure atm if these IDs really exist
+    SWITCH_UNKNOWN_68 = 68
+
+    @classmethod
+    def has_value(cls, value):
+        """
+        :return: whether enum value exists or not (true/false)
+        """
+        return any(value == item.value for item in cls)
 
 
 class DeviceType(Enum):
@@ -93,27 +109,34 @@ class DeviceType(Enum):
     """
     LIGHT = 1
     PLUG = 2
-    MOTIONSENSOR = 3
+    SENSOR = 3
     SWITCH = 4
 
-ID_TO_DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT)
-ID_TO_DEVICETYPE.update({16: DeviceType.PLUG, 32: DeviceType.MOTIONSENSOR,
-                         64: DeviceType.SWITCH, 65: DeviceType.SWITCH,
-                         66: DeviceType.SWITCH, 67: DeviceType.SWITCH,
-                         68: DeviceType.SWITCH})
+
+DEVICESUBTYPE = defaultdict(lambda: DeviceSubType.LIGHT_RGB,
+                            {item.value:item for item in DeviceSubType})
+DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT,
+                         {16: DeviceType.PLUG, 31: DeviceType.SENSOR,
+                          32: DeviceType.SENSOR, 64: DeviceType.SWITCH,
+                          65: DeviceType.SWITCH, 66: DeviceType.SWITCH,
+                          67: DeviceType.SWITCH, 68: DeviceType.SWITCH})
+
 
 class Scene:
     """ representation of a scene
     """
-    def __init__(self, conn, idx, name):
+    def __init__(self, conn, idx, name, group):
         """
         :param conn: Lightify object
         :param idx: index of the scene provided by the gateway
+        :param group: associated group index
         :param name: scene name
         """
         self.__conn = conn
         self.__idx = idx
         self.__name = name
+        self.__group = group
+        self.__deleted = False
 
     def name(self):
         """
@@ -127,60 +150,107 @@ class Scene:
         """
         return self.__idx
 
+    def group(self):
+        """
+        :return: associated group index
+        """
+        return self.__group
+
+    def mark_deleted(self):
+        """ mark the scene as deleted from gateway
+        """
+        self.__deleted = True
+
     def activate(self):
         """ activate the scene
 
         :return:
         """
-        command = self.build_command(COMMAND_ACTIVATE_SCENE, '')
+        if self.__deleted:
+            return
+
+        command = self.__conn.build_command(COMMAND_ACTIVATE_SCENE, self.__idx,
+                                            '')
         self.__conn.send(command)
-
-    def build_command(self, command, data):
-        """ build a scene command
-
-        :param command: command id (1 byte)
-        :param data: additional binary data
-        :return: binary data to be sent to the gateway
-        """
-        return self.__conn.build_command(command, self.__idx, data)
+        self.__conn.set_lights_updated()
 
     def __str__(self):
-        return '<scene %s: %s>' % (self.__idx, self.__name)
+        return '<scene %s: %s, group: %s>' % (self.__idx, self.__name,
+                                              self.__group)
 
 
 class Light:
     """ class for controlling a single light source
     """
 
-    def __init__(self, conn, addr, name):
+    def __init__(self, conn, addr, type_id):
         """
         :param conn: Lightify object
         :param addr: mac address of the light
-        :param name: name of the light
+        :param type_id: original device type id as returned by gateway
         """
+        devicesubtype = DEVICESUBTYPE[type_id]
+        devicetype = DEVICETYPE[type_id]
+
         self.__conn = conn
         self.__addr = addr
-        self.__name = name
+        self.__name = ''
         self.__reachable = True
         self.__last_seen = 0
-        self.__on = False
-        self.__lum = MAX_LUMINANCE
-        self.__temp = MIN_TEMPERATURE
-        self.__red = MAX_COLOUR
-        self.__green = MAX_COLOUR
-        self.__blue = MAX_COLOUR
-        self.__devicetype_raw = DeviceTypeRaw.LIGHT_NON_SOFTSWITCH
-        self.__devicetype = DeviceType.LIGHT
+        self.__onoff = False
         self.__groups = []
         self.__version = ''
-        self.__supported_features = ()
         self.__deleted = False
+        self.__type_id = type_id
+        self.__devicesubtype = devicesubtype
+        self.__devicetype = devicetype
+        self.__idx = 0
+
+        if devicetype in (DeviceType.SENSOR, DeviceType.SWITCH):
+            self.__lum = 0
+            self.__temp = 0
+            self.__red = 0
+            self.__green = 0
+            self.__blue = 0
+            self.__supported_features = set()
+            self.__min_temp = self.__temp
+            self.__max_temp = self.__temp
+        else:
+            self.__lum = MAX_LUMINANCE
+            self.__temp = DEFAULT_TEMPERATURE
+            self.__red = MAX_COLOUR
+            self.__green = MAX_COLOUR
+            self.__blue = MAX_COLOUR
+
+            if devicetype == DeviceType.PLUG:
+                self.__supported_features = set(('on',))
+                self.__min_temp = self.__temp
+                self.__max_temp = self.__temp
+            elif devicesubtype in (DeviceSubType.LIGHT_NON_SOFTSWITCH,
+                                   DeviceSubType.LIGHT_FIXED_WHITE):
+                self.__supported_features = set(('on', 'lum'))
+                self.__min_temp = self.__temp
+                self.__max_temp = self.__temp
+            elif devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
+                self.__supported_features = set(('on', 'lum', 'temp'))
+                self.__min_temp = MIN_TEMPERATURE_TUNABLE_WHITE
+                self.__max_temp = MAX_TEMPERATURE_TUNABLE_WHITE
+            else:
+                self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
+                self.__min_temp = MIN_TEMPERATURE_RGB
+                self.__max_temp = MAX_TEMPERATURE_RGB
 
     def name(self):
         """
         :return: name of the light
         """
         return self.__name
+
+    def idx(self):
+        """
+        :return: index of the light provided by the gateway
+        """
+        return self.__idx
 
     def addr(self):
         """
@@ -204,7 +274,7 @@ class Light:
         """
         :return: true if the status of the light is on, false otherwise
         """
-        return self.__on
+        return self.__onoff
 
     def lum(self):
         """
@@ -216,6 +286,24 @@ class Light:
         """
         :return: colour temperature in kelvin
         """
+        return self.__temp
+
+    def min_temp(self):
+        """
+        :return: minimum supported colour temperature in kelvin
+        """
+        if 'temp' in self.__supported_features:
+            return self.__min_temp
+
+        return self.__temp
+
+    def max_temp(self):
+        """
+        :return: maximum supported colour temperature in kelvin
+        """
+        if 'temp' in self.__supported_features:
+            return self.__max_temp
+
         return self.__temp
 
     def red(self):
@@ -242,15 +330,21 @@ class Light:
         """
         return self.__red, self.__green, self.__blue
 
-    def devicetype_raw(self):
+    def type_id(self):
         """
-        :return: raw device type as returned by lightify
+        :return: original device type id as returned by gateway
         """
-        return self.__devicetype_raw
+        return self.__type_id
+
+    def devicesubtype(self):
+        """
+        :return: device sub type (DeviceSubType object)
+        """
+        return self.__devicesubtype
 
     def devicetype(self):
         """
-        :return: generalized device type
+        :return: generalized device type (DeviceType object)
         """
         return self.__devicetype
 
@@ -268,7 +362,7 @@ class Light:
 
     def supported_features(self):
         """
-        :return: tuple of supported features (on, lum, temp, rgb)
+        :return: set of supported features (on, lum, temp, rgb)
         """
         return self.__supported_features
 
@@ -283,88 +377,50 @@ class Light:
         """
         self.__deleted = True
 
-    def update_name(self, name):
-        """ update the name of the light
-
-        :param name: name of the light
-        :return:
-        """
-        self.__name = name
-
-    def update_status(self, reachable, last_seen, on, lum, temp, red, green,
-                      blue, devicetype_raw, groups, version):
+    def update_status(self, reachable, last_seen, onoff, lum, temp, red, green,
+                      blue, name, groups, version, idx):
         """ update internal representation
             does not send out a command to the light source!
 
-        :param reachable: if the light is reachable or not
+        :param reachable: whether the light is reachable or not
         :param last_seen: time since last seen by gateway
-        :param on: if the light is on or off
+        :param onoff: whether the light is on or off
         :param lum: luminance (brightness)
         :param temp: colour temperature
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param devicetype_raw: raw device type
+        :param name: name of the light
         :param groups: list of associated group indices
         :param version: firmware version
+        :param idx: index of the light provided by the gateway
         :return:
-        """        
-        devicetype = ID_TO_DEVICETYPE[devicetype_raw]
-        last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
-        reachable = bool(reachable)
-        on = bool(on)
-        if devicetype_raw in (DeviceTypeRaw.MOTIONSENSOR,
-                              DeviceTypeRaw.SWITCH_TWO_BUTTONS,
-                              DeviceTypeRaw.SWITCH_FOUR_BUTTONS,
-                              DeviceTypeRaw.SWITCH_UNKNOWN1,
-                              DeviceTypeRaw.SWITCH_UNKNOWN2,
-                              DeviceTypeRaw.SWITCH_UNKNOWN3,):          
-            on = False
-            lum = 0
-            temp = 0
-            red = 0
-            green = 0
-            blue = 0
-            supported_features = ()
-        elif devicetype_raw == DeviceTypeRaw.PLUG:
-            lum = MAX_LUMINANCE
-            temp = MIN_TEMPERATURE
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on',)
-        elif devicetype_raw in (DeviceTypeRaw.LIGHT_NON_SOFTSWITCH,
-                                DeviceTypeRaw.LIGHT_FIXED_WHITE):
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on', 'lum')
-        elif devicetype_raw == DeviceTypeRaw.LIGHT_TUNABLE_WHITE:
-            red = MAX_COLOUR
-            green = MAX_COLOUR
-            blue = MAX_COLOUR
-            supported_features = ('on', 'lum', 'temp')
-        else:
-            supported_features = ('on', 'lum', 'temp', 'rgb')
-
+        """
+        self.__reachable = bool(reachable)
+        self.__last_seen = last_seen * LAST_SEEN_DURATION_MINUTES
+        self.__name = name
         self.__groups = groups
-        self.__devicetype_raw = devicetype_raw
-        self.__devicetype = devicetype
-        self.__reachable = reachable
-        self.__last_seen = last_seen
-        self.__on = on
-        self.__lum = lum
-        self.__temp = temp
-        self.__red = red
-        self.__green = green
-        self.__blue = blue
         self.__version = version
-        self.__supported_features = supported_features
+        self.__idx = idx
 
-    def set_onoff(self, on, send=True):
+        if 'on' in self.__supported_features:
+            self.__onoff = bool(onoff)
+
+        if 'lum' in self.__supported_features:
+            self.__lum = lum
+
+        if 'temp' in self.__supported_features:
+            self.__temp = temp
+
+        if 'rgb' in self.__supported_features:
+            self.__red = red
+            self.__green = green
+            self.__blue = blue
+
+    def set_onoff(self, onoff, send=True):
         """ set on/off
 
-        :param on: true/false
+        :param onoff: true/false
         :param send: whether to send a command to gateway
         :return:
         """
@@ -374,20 +430,21 @@ class Light:
         if not 'on' in self.__supported_features:
             return
 
-        on = bool(on)
-        self.__on = on
-        if on and self.__lum == 0:
+        onoff = bool(onoff)
+        self.__onoff = onoff
+        if onoff and self.__lum == 0:
             self.__lum = DEFAULT_LUMINANCE
 
         if send:
-            command = self.__conn.build_onoff(self, on)
+            command = self.__conn.build_onoff(self, onoff)
             self.__conn.send(command)
+            self.__conn.set_lights_changed()
 
-    def set_luminance(self, lum, time, send=True):
+    def set_luminance(self, lum, transition, send=True):
         """ set luminance (brightness)
 
         :param lum: luminance (brightness). if 0, the light is turned off.
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :param send: whether to send a command to gateway
         :return:
         """
@@ -401,20 +458,21 @@ class Light:
         self.__lum = lum
         if lum > 0:
             self.__lum = lum
-            self.__on = True
+            self.__onoff = True
         elif lum == 0:
             self.__lum = DEFAULT_LUMINANCE
-            self.__on = False
+            self.__onoff = False
 
         if send:
-            command = self.__conn.build_luminance(self, lum, time)
+            command = self.__conn.build_luminance(self, lum, transition)
             self.__conn.send(command)
+            self.__conn.set_lights_changed()
 
-    def set_temperature(self, temp, time, send=True):
+    def set_temperature(self, temp, transition, send=True):
         """ set colour temperature
 
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :param send: whether to send a command to gateway
         :return:
         """
@@ -424,21 +482,22 @@ class Light:
         if not 'temp' in self.__supported_features:
             return
 
-        temp = max(MIN_TEMPERATURE, temp)
-        temp = min(MAX_TEMPERATURE, temp)
+        temp = max(self.min_temp(), temp)
+        temp = min(self.max_temp(), temp)
         self.__temp = temp
 
         if send:
-            command = self.__conn.build_temp(self, temp, time)
+            command = self.__conn.build_temp(self, temp, transition)
             self.__conn.send(command)
+            self.__conn.set_lights_changed()
 
-    def set_rgb(self, red, green, blue, time, send=True):
+    def set_rgb(self, red, green, blue, transition, send=True):
         """ set RGB colour
 
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :param send: whether to send a command to gateway
         :return:
         """
@@ -456,8 +515,10 @@ class Light:
         self.__blue = blue
 
         if send:
-            command = self.__conn.build_colour(self, red, green, blue, time)
+            command = self.__conn.build_colour(self, red, green, blue,
+                                               transition)
             self.__conn.send(command)
+            self.__conn.set_lights_changed()
 
     def build_command(self, command, data):
         """ build a light command
@@ -486,6 +547,11 @@ class Group:
         self.__idx = idx
         self.__name = name
         self.__lights = []
+        self.__scenes = []
+        self.__supported_features = set()
+        self.__min_temp = 0
+        self.__max_temp = 0
+        self.__deleted = False
 
     def name(self):
         """
@@ -505,26 +571,66 @@ class Group:
         """
         return self.__lights
 
+    def scenes(self):
+        """
+        :return: list of group's scene names
+        """
+        return self.__scenes
+
+    def update_status(self):
+        """ update internal representation
+
+        :return:
+        """
+        features = [self.__conn.lights()[addr].supported_features()
+                    for addr in self.__lights if addr in self.__conn.lights()]
+        self.__supported_features = set.union(*features)
+        self.__min_temp = min(self.__conn.lights()[addr].min_temp()
+                              for addr in self.__lights
+                              if addr in self.__conn.lights())
+        self.__max_temp = max(self.__conn.lights()[addr].max_temp()
+                              for addr in self.__lights
+                              if addr in self.__conn.lights())
+
+    def supported_features(self):
+        """
+        :return: set of supported features (on, lum, temp, rgb)
+        """
+        return self.__supported_features
+
+    def min_temp(self):
+        """
+        :return: minimum supported colour temperature of the group's lights
+                 in kelvin
+        """
+        return self.__min_temp
+
+    def max_temp(self):
+        """
+        :return: maximum supported colour temperature of the group's lights
+                 in kelvin
+        """
+        return self.__max_temp
+
     def on(self):
         """
         :return: true if any of the group's lights is on, false otherwise
         """
-        return any([self.__conn.lights()[addr].on()
-                    for addr in self.__lights if addr in self.__conn.lights()])
+        return any(self.__conn.lights()[addr].on()
+                   for addr in self.__lights if addr in self.__conn.lights())
 
-    def supported_features(self):
+    def reachable(self):
         """
-        :return: tuple of supported features (on, lum, temp, rgb)
+        :return: true if any of the group's lights is reachable, false otherwise
         """
-        features = [self.__conn.lights()[addr].supported_features()
-                    for addr in self.__lights if addr in self.__conn.lights()]
-        features = list(set(sum(features, ())))
-        return features
+        return any(self.__conn.lights()[addr].reachable()
+                   for addr in self.__lights if addr in self.__conn.lights())
 
-    def lights_attribute(self, attr):
+    def _lights_attribute(self, attr, feature):
         """ do a best guess about the group's lights attribute
 
         :param attr: attribute name
+        :param feature: supported feature for ordering
         :return: guessed attribute value
         """
         lights = [self.__conn.lights()[addr] for addr in self.__lights
@@ -532,7 +638,7 @@ class Group:
         if not lights:
             return 0
 
-        lights = [(light.devicetype_raw() != DeviceTypeRaw.PLUG,
+        lights = [(feature in light.supported_features(),
                    getattr(light, attr)()) for light in lights]
         lights.sort(key=lambda t: (t[0], t[1]), reverse=True)
         return lights[0][1]
@@ -541,37 +647,38 @@ class Group:
         """
         :return: best guess about the group's lights luminance (brightness)
         """
-        return self.lights_attribute('lum')
+        return self._lights_attribute('lum', 'lum')
 
     def temp(self):
         """
-        :return: best guess about the group's lights colour temperature in kelvin
+        :return: best guess about the group's lights colour temperature in
+                 kelvin
         """
-        return self.lights_attribute('temp')
+        return self._lights_attribute('temp', 'temp')
 
     def red(self):
         """
         :return: best guess about the group's lights amount of red
         """
-        return self.lights_attribute('red')
+        return self._lights_attribute('red', 'rgb')
 
     def green(self):
         """
         :return: best guess about the group's lights amount of green
         """
-        return self.lights_attribute('green')
+        return self._lights_attribute('green', 'rgb')
 
     def blue(self):
         """
         :return: best guess about the group's lights amount of blue
         """
-        return self.lights_attribute('blue')
+        return self._lights_attribute('blue', 'rgb')
 
     def rgb(self):
         """
         :return: tuple containing (red, green, blue)
         """
-        return self.lights_attribute('rgb')
+        return self._lights_attribute('rgb', 'rgb')
 
     def set_lights(self, lights):
         """ set group's lights
@@ -581,73 +688,117 @@ class Group:
         """
         self.__lights = lights
 
-    def set_onoff(self, on):
-        """ set on/off for the group's lights
+    def set_scenes(self, scenes):
+        """ set group's scenes
 
-        :param on: true/false
+        :param scenes: list of group's scene names
         :return:
         """
-        on = bool(on)
-        command = self.__conn.build_onoff(self, on)
+        self.__scenes = scenes
+
+    def mark_deleted(self):
+        """ mark the group as deleted from gateway
+        """
+        self.__deleted = True
+
+    def set_onoff(self, onoff):
+        """ set on/off for the group's lights
+
+        :param onoff: true/false
+        :return:
+        """
+        if self.__deleted:
+            return
+
+        onoff = bool(onoff)
+        command = self.__conn.build_onoff(self, onoff)
         self.__conn.send(command)
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
-                light.set_onoff(on, send=False)
+                light.set_onoff(onoff, send=False)
 
-    def set_luminance(self, lum, time):
+        self.__conn.set_lights_changed()
+
+    def set_luminance(self, lum, transition):
         """ set luminance (brightness) for the group's lights
 
         :param lum: luminance (brightness)
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return:
         """
+        if self.__deleted:
+            return
+
         lum = min(MAX_LUMINANCE, lum)
-        command = self.__conn.build_luminance(self, lum, time)
+        command = self.__conn.build_luminance(self, lum, transition)
         self.__conn.send(command)
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
-                light.set_luminance(lum, time, send=False)
+                light.set_luminance(lum, transition, send=False)
 
-    def set_temperature(self, temp, time):
+        self.__conn.set_lights_changed()
+
+    def set_temperature(self, temp, transition):
         """ set colour temperature for the group's lights
 
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return:
         """
-        temp = max(MIN_TEMPERATURE, temp)
-        temp = min(MAX_TEMPERATURE, temp)
-        command = self.__conn.build_temp(self, temp, time)
+        if self.__deleted:
+            return
+
+        temp = max(self.min_temp(), temp)
+        temp = min(self.max_temp(), temp)
+        command = self.__conn.build_temp(self, temp, transition)
         self.__conn.send(command)
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
-                light.set_temperature(temp, time, send=False)
+                light.set_temperature(temp, transition, send=False)
 
-    def set_rgb(self, red, green, blue, time):
+        self.__conn.set_lights_changed()
+
+    def set_rgb(self, red, green, blue, transition):
         """ set RGB colour for the group's lights
 
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return:
         """
+        if self.__deleted:
+            return
+
         red = min(red, MAX_COLOUR)
         green = min(green, MAX_COLOUR)
         blue = min(blue, MAX_COLOUR)
-        command = self.__conn.build_colour(self, red, green, blue, time)
+        command = self.__conn.build_colour(self, red, green, blue, transition)
         self.__conn.send(command)
 
         for addr in self.__lights:
             if addr in self.__conn.lights():
                 light = self.__conn.lights()[addr]
-                light.set_rgb(red, green, blue, time, send=False)
+                light.set_rgb(red, green, blue, transition, send=False)
+
+        self.__conn.set_lights_changed()
+
+    def activate_scene(self, name):
+        """ activate a group's scene
+
+        :param name: scene name
+        :return:
+        """
+        if name in self.__scenes:
+            scene = self.__conn.scenes().get(name)
+            if scene:
+                scene.activate()
 
     def build_command(self, command, data):
         """ build a group command
@@ -686,13 +837,15 @@ class Lightify:
         self.__groups = {}
         self.__scenes = {}
         self.__lights = {}
-        self.__lights_obtained = False
-        self.__groups_obtained = False
-        self.__scenes_obtained = False
+        self.__groups_updated = 0
+        self.__scenes_updated = 0
+        self.__lights_updated = 0
+        self.__lights_changed = 0
+        self.__lights_hash = ''
         self.__lock = threading.RLock()
         self.__host = host
         self.__sock = None
-        self.connect()
+        self._connect()
 
     def __del__(self):
         try:
@@ -702,7 +855,7 @@ class Lightify:
 
         self.__sock.close()
 
-    def connect(self):
+    def _connect(self):
         """ establish a connection with the lightify gateway
 
         :return:
@@ -712,14 +865,64 @@ class Lightify:
             self.__sock.settimeout(GATEWAY_TIMEOUT_SECONDS)
             self.__sock.connect((self.__host, PORT))
 
+    def _next_seq(self):
+        """
+        :return: next sequence number
+        """
+        with self.__lock:
+            self.__seq = (self.__seq + 1) % 256
+            return self.__seq
+
+    def set_lights_updated(self):
+        """ update lights updated timestamp
+
+        :return:
+        """
+        self.__lights_updated = OUTDATED_TIMESTAMP
+
+    def set_lights_changed(self):
+        """ update lights hash and changed timestamp
+
+        :return:
+        """
+        self.__lights_hash = ''
+        self.__lights_changed = time.time()
+
+    def groups_updated(self):
+        """
+        :return: timestamp when the groups were updated last time
+        """
+        return self.__groups_updated
+
+    def scenes_updated(self):
+        """
+        :return: timestamp when the scenes were updated last time
+        """
+        return self.__scenes_updated
+
+    def lights_updated(self):
+        """
+        :return: timestamp when the lights were updated last time
+        """
+        return self.__lights_updated
+
+    def lights_changed(self):
+        """
+        :return: timestamp when the lights values were changed last time
+        """
+        return self.__lights_changed
+
     def groups(self):
         """
         :return: dict from group name to Group object
         """
-        if not self.__lights_obtained:
+        if not self.__lights_updated:
             self.update_all_light_status()
 
-        if not self.__groups_obtained:
+        if not self.__scenes_updated:
+            self.update_scene_list()
+
+        if not self.__groups_updated:
             self.update_group_list()
 
         return self.__groups
@@ -728,7 +931,7 @@ class Lightify:
         """
         :return: dict from scene name to Scene object
         """
-        if not self.__scenes_obtained:
+        if not self.__scenes_updated:
             self.update_scene_list()
 
         return self.__scenes
@@ -737,7 +940,7 @@ class Lightify:
         """
         :return: dict from light mac address to Light object
         """
-        if not self.__lights_obtained:
+        if not self.__lights_updated:
             self.update_all_light_status()
 
         return self.__lights
@@ -747,7 +950,7 @@ class Lightify:
         :param name: name of the light
         :return: Light object
         """
-        if not self.__lights_obtained:
+        if not self.__lights_updated:
             self.update_all_light_status()
 
         for light in self.__lights.values():
@@ -755,14 +958,6 @@ class Lightify:
                 return light
 
         return None
-
-    def next_seq(self):
-        """
-        :return: next sequence number
-        """
-        with self.__lock:
-            self.__seq = (self.__seq + 1) % 256
-            return self.__seq
 
     def build_global_command(self, command, data):
         """ build a global command
@@ -802,7 +997,7 @@ class Lightify:
             0,
             0,
             0x07,
-            self.next_seq()
+            self._next_seq()
         ) + addr + data
 
         return result
@@ -846,56 +1041,56 @@ class Lightify:
         )
 
     @staticmethod
-    def build_onoff(item, on):
+    def build_onoff(item, onoff):
         """
         :param item: Light or Group object
-        :param on: true/false
+        :param onoff: true/false
         :return: binary command to set on/off for the light/group
         """
         return item.build_command(
             COMMAND_ONOFF,
-            struct.pack('<B', on)
+            struct.pack('<B', onoff)
         )
 
     @staticmethod
-    def build_temp(item, temp, time):
+    def build_temp(item, temp, transition):
         """
         :param item: Light or Group object
         :param temp: colour temperature in kelvin
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return: binary command to set the light/group colour temperature
         """
         return item.build_command(
             COMMAND_TEMP,
-            struct.pack('<HH', temp, time)
+            struct.pack('<HH', temp, transition)
         )
 
     @staticmethod
-    def build_luminance(item, lum, time):
+    def build_luminance(item, lum, transition):
         """
         :param item: Light or Group object
         :param lum: luminance (brightness)
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return: binary command to set the light/group luminance (brightness)
         """
         return item.build_command(
             COMMAND_LUMINANCE,
-            struct.pack('<BH', lum, time)
+            struct.pack('<BH', lum, transition)
         )
 
     @staticmethod
-    def build_colour(item, red, green, blue, time):
+    def build_colour(item, red, green, blue, transition):
         """
         :param item: Light or Group object
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
-        :param time: transition time in 1/10 seconds, 0 to disable transition
+        :param transition: transition time in 1/10 seconds, 0 to disable
         :return: binary command to set the light/group RGB colour
         """
         return item.build_command(
             COMMAND_COLOUR,
-            struct.pack('<BBBBH', red, green, blue, DEFAULT_ALPHA, time)
+            struct.pack('<BBBBH', red, green, blue, DEFAULT_ALPHA, transition)
         )
 
     def build_all_light_status(self, flag=0x01):
@@ -951,19 +1146,30 @@ class Lightify:
 
         return groups
 
-    def update_group_list(self):
+    def update_group_list(self, throttling_interval=None):
         """ update all groups
 
-        :return:
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
+        :return: dict from group name to Group object of newly
+                 discovered groups
         """
+        if (throttling_interval and
+                time.time() < self.__groups_updated + throttling_interval):
+            return {}
+
         with self.__lock:
+            if (throttling_interval and
+                    time.time() < self.__groups_updated + throttling_interval):
+                return {}
+
             command = self.build_group_list()
             data = self.send(command)
-            self.__groups_obtained = True
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of groups: %d', num)
-            groups = {}
+            new_groups = {}
 
             for i in range(0, num):
                 pos = 9 + i * 18
@@ -972,12 +1178,43 @@ class Lightify:
                 (idx, name) = struct.unpack('<H16s', payload)
                 name = name.decode('utf-8').replace('\0', '')
 
-                self.__logger.debug('Group index %d: %s', idx, name)
-                group = Group(self, idx, name)
-                groups[name] = group
+                if name in self.__groups and self.__groups[name].idx() == idx:
+                    group = self.__groups[name]
+                    self.__logger.debug('Old group %d: %s', idx, name)
+                else:
+                    group = Group(self, idx, name)
+                    self.__logger.debug('New group %d: %s', idx, name)
 
-            self.__groups = groups
+                new_groups[name] = group
+
+            for name in self.__groups:
+                if (not name in new_groups or
+                        self.__groups[name].idx() != new_groups[name].idx()):
+                    self.__groups[name].mark_deleted()
+                    del self.__groups[name]
+                else:
+                    del new_groups[name]
+
+            for name in new_groups:
+                self.__groups[name] = new_groups[name]
+
             self.update_group_lights()
+            self.update_group_scenes()
+            self.__groups_updated = time.time()
+            return new_groups
+
+
+    def _lights_sorted_byidx(self):
+        """ get the lights sorted by light idx
+            needed to keep lists of group lights backward compatible with
+            the previous version of the library in order not to break existing
+            integrations
+
+        :return: list of light mac addresses sorted by light idx
+        """
+        return [i[0] for i in sorted(
+            [(light.addr(), light.idx())
+             for light in self.__lights.values()], key=lambda i: i[1])]
 
     def update_group_lights(self):
         """ update the list of group's light mac addresses for all groups
@@ -985,9 +1222,20 @@ class Lightify:
         :return:
         """
         for group in self.__groups.values():
-            lights = [addr for addr in self.__lights
+            lights = [addr for addr in self._lights_sorted_byidx()
                       if group.idx() in self.__lights[addr].groups()]
             group.set_lights(lights)
+            group.update_status()
+
+    def update_group_scenes(self):
+        """ update the list of group's scenes for all groups
+
+        :return:
+        """
+        for group in self.__groups.values():
+            scenes = [name for name in self.__scenes
+                      if group.idx() == self.__scenes[name].group()]
+            group.set_scenes(scenes)
 
     def group_info(self, group):
         """ get the list of group's light mac addresses
@@ -999,32 +1247,66 @@ class Lightify:
         self.update_all_light_status()
         return group.lights()
 
-    def update_scene_list(self):
+    def update_scene_list(self, throttling_interval=None):
         """ update all scenes
 
-        :return:
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
+        :return: dict from scene name to Scene object of newly
+                 discovered scenes
         """
+        if (throttling_interval and
+                time.time() < self.__scenes_updated + throttling_interval):
+            return {}
+
         with self.__lock:
+            if (throttling_interval and
+                    time.time() < self.__scenes_updated + throttling_interval):
+                return {}
+
             command = self.build_scene_list()
             data = self.send(command)
-            self.__scenes_obtained = True
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of scenes: %d', num)
-            scenes = {}
+            new_scenes = {}
 
             for i in range(0, num):
                 pos = 9 + i * 20
                 payload = data[pos:pos + 20]
 
-                (idx, name) = struct.unpack('<Bx16s2x', payload)
+                (idx, name, group) = struct.unpack('<Bx16sH', payload)
                 name = name.decode('utf-8').replace('\0', '')
+                group = 16 - format(group, '016b').index('1')
 
-                self.__logger.debug('Scene index %d: %s', idx, name)
-                scene = Scene(self, idx, name)
-                scenes[name] = scene
+                if (name in self.__scenes and self.__scenes[name].idx() == idx
+                        and self.__scenes[name].group() == group):
+                    scene = self.__scenes[name]
+                    self.__logger.debug('Old scene %d: %s, group: %d', idx,
+                                        name, group)
+                else:
+                    scene = Scene(self, idx, name, group)
+                    self.__logger.debug('New scene %d: %s, group: %d', idx,
+                                        name, group)
 
-            self.__scenes = scenes
+                new_scenes[name] = scene
+
+            for name in self.__scenes:
+                if (not name in new_scenes or
+                        self.__scenes[name].idx() != new_scenes[name].idx() or
+                        self.__scenes[name].group() != new_scenes[name].group()
+                   ):
+                    self.__scenes[name].mark_deleted()
+                    del self.__scenes[name]
+                else:
+                    del new_scenes[name]
+
+            for name in new_scenes:
+                self.__scenes[name] = new_scenes[name]
+
+            self.__scenes_updated = time.time()
+            return new_scenes
 
     def send(self, data, reconnect=True):
         """ send the packet 'data' to the gateway and return the received packet
@@ -1067,7 +1349,7 @@ class Lightify:
                 self.__logger.warning('socketError: %s', err)
                 if reconnect:
                     self.__logger.warning('Trying to reconnect')
-                    self.connect()
+                    self._connect()
                     return self.send(data, reconnect=False)
 
                 raise err
@@ -1076,9 +1358,10 @@ class Lightify:
 
     def update_light_status(self, light):
         """ get the status of the given light (only subset of values)
+            deprecated, for backward compatibility only!
 
         :param light: Light object
-        :return: tuple containing (on, lum, temp, red, green, blue)
+        :return: tuple containing (onoff, lum, temp, red, green, blue)
         """
         with self.__lock:
             command = self.build_light_status(light)
@@ -1088,32 +1371,48 @@ class Lightify:
             if len(data) == unreachable_data_len:
                 return None, None, None, None, None, None
 
-            (on, lum, temp, red, green, blue) = struct.unpack(
+            (onoff, lum, temp, red, green, blue) = struct.unpack(
                 '<19x2BH3B4x', data)
 
             self.__logger.debug('Light: %x', light.addr())
-            self.__logger.debug('onoff: %d', on)
+            self.__logger.debug('onoff: %d', onoff)
             self.__logger.debug('lum:   %d', lum)
             self.__logger.debug('temp:  %d', temp)
             self.__logger.debug('red:   %d', red)
             self.__logger.debug('green: %d', green)
             self.__logger.debug('blue:  %d', blue)
 
-            return on, lum, temp, red, green, blue
+            return onoff, lum, temp, red, green, blue
 
-    def update_all_light_status(self):
+    def update_all_light_status(self, throttling_interval=None):
         """ update the status of all lights
 
-        :return:
+        :param throttling_interval: optional throttling interval (skip call to
+            gateway if last call finished less than throttling interval seconds
+            ago)
+        :return: dict from light mac address to Light object of newly
+                 discovered lights
         """
+        if (throttling_interval and
+                time.time() < self.__lights_updated + throttling_interval):
+            return {}
+
         with self.__lock:
+            if (throttling_interval and
+                    time.time() < self.__lights_updated + throttling_interval):
+                return {}
+
             command = self.build_all_light_status()
             data = self.send(command)
-            self.__lights_obtained = True
+
+            old_hash = self.__lights_hash
+            self.__lights_hash = hashlib.md5(data[7:]).hexdigest()
+            if old_hash == self.__lights_hash:
+                self.__lights_updated = time.time()
+                return {}
 
             (num,) = struct.unpack('<H', data[7:9])
             self.__logger.debug('Number of lights: %d', num)
-            old_lights = self.__lights
             new_lights = {}
 
             for i in range(0, num):
@@ -1131,50 +1430,56 @@ class Lightify:
                     self.__logger.warning('struct.error: %s', err)
                     self.__logger.warning('payload: %s',
                                           binascii.hexlify(payload))
-                    return
+                    return {}
 
-                try:
-                    name = name.replace('\0', '')
-                except TypeError:
-                    # Names are UTF-8 encoded, but not data
-                    name = name.decode('utf-8').replace('\0', '')
-
-                if addr in old_lights:
-                    light = old_lights[addr]
-                    light.update_name(name)
-                    self.__logger.debug('Old light: %x', addr)
-                else:
-                    light = Light(self, addr, name)
-                    self.__logger.debug('New light: %x', addr)
-
-                (devicetype, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
-                 on, lum, temp, red, green, blue) = struct.unpack(
+                (type_id, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
+                 onoff, lum, temp, red, green, blue) = struct.unpack(
                      '<6BH2BH3Bx', stat)
-                groups = [16 - i for i, val in enumerate(format(groups, '016b'))
+                if not DeviceSubType.has_value(type_id):
+                    self.__logger.warning(
+                        'Unknown device type id: %s. Please report to '
+                        'https://github.com/tfriedel/python-lightify', type_id)
+
+                name = name.decode('utf-8').replace('\0', '')
+                groups = [16 - j for j, val in enumerate(format(groups, '016b'))
                           if val == '1']
                 version = '%02d%02d%02d%d' % (ver1_1, ver1_2, ver1_3, ver1_4)
 
-                self.__logger.debug('name:       %s', name)
-                self.__logger.debug('reachable:  %d', reachable)
-                self.__logger.debug('last seen:  %d', last_seen)
-                self.__logger.debug('onoff:      %d', on)
-                self.__logger.debug('lum:        %d', lum)
-                self.__logger.debug('temp:       %d', temp)
-                self.__logger.debug('red:        %d', red)
-                self.__logger.debug('green:      %d', green)
-                self.__logger.debug('blue:       %d', blue)
-                self.__logger.debug('devicetype: %d', devicetype)
-                self.__logger.debug('groups:     %s', groups)
-                self.__logger.debug('version:    %s', version)
+                if addr in self.__lights:
+                    light = self.__lights[addr]
+                    self.__logger.debug('Old light: %x', addr)
+                else:
+                    light = Light(self, addr, type_id)
+                    self.__logger.debug('New light: %x', addr)
 
-                light.update_status(reachable, last_seen, on, lum, temp, red,
-                                    green, blue, devicetype, groups, version)
+                self.__logger.debug('name:      %s', name)
+                self.__logger.debug('reachable: %d', reachable)
+                self.__logger.debug('last seen: %d', last_seen)
+                self.__logger.debug('onoff:     %d', onoff)
+                self.__logger.debug('lum:       %d', lum)
+                self.__logger.debug('temp:      %d', temp)
+                self.__logger.debug('red:       %d', red)
+                self.__logger.debug('green:     %d', green)
+                self.__logger.debug('blue:      %d', blue)
+                self.__logger.debug('type id:   %d', type_id)
+                self.__logger.debug('groups:    %s', groups)
+                self.__logger.debug('version:   %s', version)
+                self.__logger.debug('idx:   %s', i)
 
+                light.update_status(reachable, last_seen, onoff, lum, temp, red,
+                                    green, blue, name, groups, version, i)
                 new_lights[addr] = light
 
-            for addr in old_lights:
+            for addr in self.__lights:
                 if not addr in new_lights:
-                    old_lights[addr].mark_deleted()
+                    self.__lights[addr].mark_deleted()
+                    del self.__lights[addr]
+                else:
+                    del new_lights[addr]
 
-            self.__lights = new_lights
-            self.update_group_lights()
+            for addr in new_lights:
+                self.__lights[addr] = new_lights[addr]
+
+            self.__lights_updated = time.time()
+            self.__lights_changed = self.__lights_updated
+            return new_lights
