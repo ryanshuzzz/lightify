@@ -60,12 +60,14 @@ COMMAND_LIGHT_STATUS = 0x68
 # 52 activate scene
 # 68 light status (returns light address and light status if reachable)
 
-OUTDATED_TIMESTAMP = 1
-
+DEFAULT_ALPHA = 0xff
 FLAG_LIGHT = 0x00
 FLAG_GLOBAL = 0x02
+LAST_SEEN_DURATION_MINUTES = 5
+NO_RGB_VALUES = (1, 0, 0)
+TYPE_LIGHT_TUNABLE_WHITE = 2
+TYPE_LIGHT_RGB = 10
 
-DEFAULT_ALPHA = 0xff
 DEFAULT_LUMINANCE = 1
 DEFAULT_TEMPERATURE = 2700
 MIN_TEMPERATURE_TUNABLE_WHITE = 2700
@@ -74,34 +76,22 @@ MIN_TEMPERATURE_RGB = 1900
 MAX_TEMPERATURE_RGB = 6500
 MAX_LUMINANCE = 100
 MAX_COLOUR = 255
-LAST_SEEN_DURATION_MINUTES = 5
 
 GATEWAY_TIMEOUT_SECONDS = 10
+OUTDATED_TIMESTAMP = 1
+UNKNOWN_DEVICENAME = 'unknown device'
 
 
 class DeviceSubType(Enum):
     """ device sub type
-        list of known device ids may be incomplete!
     """
-    LIGHT_NON_SOFTSWITCH = 1
+    LIGHT_FIXED_WHITE = 1
     LIGHT_TUNABLE_WHITE = 2
-    LIGHT_FIXED_WHITE = 4
-    LIGHT_RGB = 10
-    PLUG = 16
-    CONTACTSENSOR = 31
-    MOTIONSENSOR = 32
-    SWITCH_TWO_BUTTONS = 64
-    SWITCH_FOUR_BUTTONS = 65
-    SWITCH_MINI = 66
-    SWITCH_UNKNOWN_67 = 67 # not sure atm if these IDs really exist
-    SWITCH_UNKNOWN_68 = 68
-
-    @classmethod
-    def has_value(cls, value):
-        """
-        :return: whether enum value exists or not (true/false)
-        """
-        return any(value == item.value for item in cls)
+    LIGHT_RGB = 3
+    PLUG = 4
+    CONTACT_SENSOR = 5
+    MOTION_SENSOR = 6
+    SWITCH = 7
 
 
 class DeviceType(Enum):
@@ -113,13 +103,56 @@ class DeviceType(Enum):
     SWITCH = 4
 
 
-DEVICESUBTYPE = defaultdict(lambda: DeviceSubType.LIGHT_RGB,
-                            {item.value:item for item in DeviceSubType})
-DEVICETYPE = defaultdict(lambda: DeviceType.LIGHT,
-                         {16: DeviceType.PLUG, 31: DeviceType.SENSOR,
-                          32: DeviceType.SENSOR, 64: DeviceType.SWITCH,
-                          65: DeviceType.SWITCH, 66: DeviceType.SWITCH,
-                          67: DeviceType.SWITCH, 68: DeviceType.SWITCH})
+DEVICE_TYPES = {
+    1: {'type': DeviceType.LIGHT,
+        'subtype': DeviceSubType.LIGHT_FIXED_WHITE,
+        'name': 'light non softswitch'
+       },
+    2: {'type': DeviceType.LIGHT,
+        'subtype': DeviceSubType.LIGHT_TUNABLE_WHITE,
+        'name': 'light tunable white'
+       },
+    4: {'type': DeviceType.LIGHT,
+        'subtype': DeviceSubType.LIGHT_FIXED_WHITE,
+        'name': 'light fixed white'
+       },
+    10: {'type': DeviceType.LIGHT,
+         'subtype': DeviceSubType.LIGHT_RGB,
+         'name': 'light rgb'
+        },
+    16: {'type': DeviceType.PLUG,
+         'subtype': DeviceSubType.PLUG,
+         'name': 'plug'
+        },
+    31: {'type': DeviceType.SENSOR,
+         'subtype': DeviceSubType.CONTACT_SENSOR,
+         'name': 'contact sensor'
+        },
+    32: {'type': DeviceType.SENSOR,
+         'subtype': DeviceSubType.MOTION_SENSOR,
+         'name': 'motion sensor'
+        },
+    64: {'type': DeviceType.SWITCH,
+         'subtype': DeviceSubType.SWITCH,
+         'name': '2 button switch'
+        },
+    65: {'type': DeviceType.SWITCH,
+         'subtype': DeviceSubType.SWITCH,
+         'name': '4 button switch'
+        },
+    66: {'type': DeviceType.SWITCH,
+         'subtype': DeviceSubType.SWITCH,
+         'name': '3 button switch'
+        },
+    67: {'type': DeviceType.SWITCH,
+         'subtype': DeviceSubType.SWITCH,
+         'name': 'unknown switch'
+        },
+    68: {'type': DeviceType.SWITCH,
+         'subtype': DeviceSubType.SWITCH,
+         'name': 'unknown switch'
+        }
+}
 
 
 class Scene:
@@ -183,15 +216,14 @@ class Light:
     """ class for controlling a single light source
     """
 
-    def __init__(self, conn, addr, type_id):
+    def __init__(self, conn, addr, type_id, type_id_assumed):
         """
         :param conn: Lightify object
         :param addr: mac address of the light
         :param type_id: original device type id as returned by gateway
+        :param type_id_assumed: assumed device type id (if type belongs to an
+            unknown device)
         """
-        devicesubtype = DEVICESUBTYPE[type_id]
-        devicetype = DEVICETYPE[type_id]
-
         self.__conn = conn
         self.__addr = addr
         self.__name = ''
@@ -202,11 +234,19 @@ class Light:
         self.__version = ''
         self.__deleted = False
         self.__type_id = type_id
-        self.__devicesubtype = devicesubtype
-        self.__devicetype = devicetype
         self.__idx = 0
 
-        if devicetype in (DeviceType.SENSOR, DeviceType.SWITCH):
+        device_info = conn.device_types()[type_id_assumed]
+        self.__devicesubtype = device_info['subtype']
+        self.__devicetype = device_info['type']
+        if type_id == type_id_assumed:
+            self.__devicename = device_info['name']
+        else:
+            self.__devicename = UNKNOWN_DEVICENAME
+
+        if self.__devicesubtype in (DeviceSubType.CONTACT_SENSOR,
+                                    DeviceSubType.MOTION_SENSOR,
+                                    DeviceSubType.SWITCH):
             self.__lum = 0
             self.__temp = 0
             self.__red = 0
@@ -222,23 +262,26 @@ class Light:
             self.__green = MAX_COLOUR
             self.__blue = MAX_COLOUR
 
-            if devicetype == DeviceType.PLUG:
+            if self.__devicesubtype == DeviceSubType.PLUG:
                 self.__supported_features = set(('on',))
                 self.__min_temp = self.__temp
                 self.__max_temp = self.__temp
-            elif devicesubtype in (DeviceSubType.LIGHT_NON_SOFTSWITCH,
-                                   DeviceSubType.LIGHT_FIXED_WHITE):
+            elif self.__devicesubtype == DeviceSubType.LIGHT_FIXED_WHITE:
                 self.__supported_features = set(('on', 'lum'))
                 self.__min_temp = self.__temp
                 self.__max_temp = self.__temp
-            elif devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
+            elif self.__devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
                 self.__supported_features = set(('on', 'lum', 'temp'))
-                self.__min_temp = MIN_TEMPERATURE_TUNABLE_WHITE
-                self.__max_temp = MAX_TEMPERATURE_TUNABLE_WHITE
+                self.__min_temp = device_info.get('min_temp',
+                                                  MIN_TEMPERATURE_TUNABLE_WHITE)
+                self.__max_temp = device_info.get('max_temp',
+                                                  MAX_TEMPERATURE_TUNABLE_WHITE)
             else:
                 self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
-                self.__min_temp = MIN_TEMPERATURE_RGB
-                self.__max_temp = MAX_TEMPERATURE_RGB
+                self.__min_temp = device_info.get('min_temp',
+                                                  MIN_TEMPERATURE_RGB)
+                self.__max_temp = device_info.get('max_temp',
+                                                  MAX_TEMPERATURE_RGB)
 
     def name(self):
         """
@@ -347,6 +390,12 @@ class Light:
         :return: generalized device type (DeviceType object)
         """
         return self.__devicetype
+
+    def devicename(self):
+        """
+        :return: device name
+        """
+        return self.__devicename
 
     def groups(self):
         """
@@ -823,10 +872,37 @@ class Group:
 class Lightify:
     """ main osram lightify class
     """
-    def __init__(self, host):
+    def __init__(self, host, new_device_types=None):
         """
         :param host: lightify gateway host
+        :param new_device_types: dict of additional device types to merge with
+            default device types:
+            {<type_id>: {
+                'type': <DeviceType instance>,
+                'subtype': <DeviceSubType instance>,
+                'name': <name of the device>,
+                # only for LIGHT_TUNABLE_WHITE and LIGHT_RGB:
+                'min_temp': <minimum temperature>, # optional, default:
+                                                   # 2700 (LIGHT_TUNABLE_WHITE)
+                                                   # 1900 (LIGHT_RGB)
+                'max_temp': <maximum temperature>  # optional, default: 6500
+             },
+             ...
+            }
+            For example:
+            {128: {
+                'type': DeviceType.LIGHT,
+                'subtype': DeviceSubType.LIGHT_TUNABLE_WHITE,
+                'name': 'tradfri tunable white',
+                'min_temp': 2700,
+                'max_temp': 6500
+             }
+            }
+        }}
         """
+        self.__device_types = DEVICE_TYPES.copy()
+        self.__device_types.update(new_device_types or {})
+
         self.__logger = logging.getLogger(MODULE)
         self.__logger.addHandler(logging.NullHandler())
         self.__logger.info('Logging %s', MODULE)
@@ -927,6 +1003,12 @@ class Lightify:
 
         return self.__groups
 
+    def device_types(self):
+        """
+        :return: dict with device types information
+        """
+        return self.__device_types
+
     def scenes(self):
         """
         :return: dict from scene name to Scene object
@@ -984,10 +1066,18 @@ class Lightify:
         """
         length = 6 + len(addr) + len(data)
         if isinstance(addr, str):
-            addr = addr.encode('cp437')
+            # keep compatibiity with Python 2.7
+            try:
+                addr = addr.encode('cp437')
+            except UnicodeDecodeError:
+                pass
 
         if isinstance(data, str):
-            data = data.encode('cp437')
+            # keep compatibiity with Python 2.7
+            try:
+                data = data.encode('cp437')
+            except UnicodeDecodeError:
+                pass
 
         result = struct.pack(
             '<H6B',
@@ -1435,11 +1525,6 @@ class Lightify:
                 (type_id, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
                  onoff, lum, temp, red, green, blue) = struct.unpack(
                      '<6BH2BH3Bx', stat)
-                if not DeviceSubType.has_value(type_id):
-                    self.__logger.warning(
-                        'Unknown device type id: %s. Please report to '
-                        'https://github.com/tfriedel/python-lightify', type_id)
-
                 name = name.decode('utf-8').replace('\0', '')
                 groups = [16 - j for j, val in enumerate(format(groups, '016b'))
                           if val == '1']
@@ -1449,7 +1534,19 @@ class Lightify:
                     light = self.__lights[addr]
                     self.__logger.debug('Old light: %x', addr)
                 else:
-                    light = Light(self, addr, type_id)
+                    if type_id not in self.__device_types:
+                        self.__logger.warning(
+                            'Unknown device type id: %s. Please report to '
+                            'https://github.com/tfriedel/python-lightify',
+                            type_id)
+                        if (red, green, blue) == NO_RGB_VALUES:
+                            type_id_assumed = TYPE_LIGHT_TUNABLE_WHITE
+                        else:
+                            type_id_assumed = TYPE_LIGHT_RGB
+                    else:
+                        type_id_assumed = type_id
+
+                    light = Light(self, addr, type_id, type_id_assumed)
                     self.__logger.debug('New light: %x', addr)
 
                 self.__logger.debug('name:      %s', name)
