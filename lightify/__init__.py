@@ -60,12 +60,10 @@ COMMAND_LIGHT_STATUS = 0x68
 # 52 activate scene
 # 68 light status (returns light address and light status if reachable)
 
-OUTDATED_TIMESTAMP = 1
-
+DEFAULT_ALPHA = 0xff
 FLAG_LIGHT = 0x00
 FLAG_GLOBAL = 0x02
-DEFAULT_ALPHA = 0xff
-
+LAST_SEEN_DURATION_MINUTES = 5
 NO_RGB_VALUES = (1, 0, 0)
 TYPE_LIGHT_TUNABLE_WHITE = 2
 TYPE_LIGHT_RGB = 10
@@ -78,9 +76,10 @@ MIN_TEMPERATURE_RGB = 1900
 MAX_TEMPERATURE_RGB = 6500
 MAX_LUMINANCE = 100
 MAX_COLOUR = 255
-LAST_SEEN_DURATION_MINUTES = 5
 
 GATEWAY_TIMEOUT_SECONDS = 10
+OUTDATED_TIMESTAMP = 1
+UNKNOWN_DEVICENAME = 'unknown device'
 
 
 class DeviceSubType(Enum):
@@ -240,7 +239,10 @@ class Light:
         device_info = conn.device_types()[type_id_assumed]
         self.__devicesubtype = device_info['subtype']
         self.__devicetype = device_info['type']
-        self.__devicename = device_info['name']
+        if type_id == type_id_assumed:
+            self.__devicename = device_info['name']
+        else:
+            self.__devicename = UNKNOWN_DEVICENAME
 
         if self.__devicesubtype in (DeviceSubType.CONTACT_SENSOR,
                                     DeviceSubType.MOTION_SENSOR,
