@@ -1064,10 +1064,18 @@ class Lightify:
         """
         length = 6 + len(addr) + len(data)
         if isinstance(addr, str):
-            addr = addr.encode('cp437')
+            # keep compatibiity with Python 2.7
+            try:
+                addr = addr.encode('cp437')
+            except UnicodeDecodeError:
+                pass
 
         if isinstance(data, str):
-            data = data.encode('cp437')
+            # keep compatibiity with Python 2.7
+            try:
+                data = data.encode('cp437')
+            except UnicodeDecodeError:
+                pass
 
         result = struct.pack(
             '<H6B',
