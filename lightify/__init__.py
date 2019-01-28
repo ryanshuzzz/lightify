@@ -1522,13 +1522,14 @@ class Lightify:
                                           binascii.hexlify(payload))
                     return {}
 
-                (type_id, ver1_1, ver1_2, ver1_3, ver1_4, reachable, groups,
-                 onoff, lum, temp, red, green, blue) = struct.unpack(
-                     '<6BH2BH3Bx', stat)
+                (type_id, version, reachable, groups, onoff, lum, temp, red,
+                 green, blue) = struct.unpack('<B4sBH2BH3Bx', stat)
                 name = name.decode('utf-8').replace('\0', '')
                 groups = [16 - j for j, val in enumerate(format(groups, '016b'))
                           if val == '1']
-                version = '%02d%02d%02d%d' % (ver1_1, ver1_2, ver1_3, ver1_4)
+                version = format(struct.unpack('>I', version)[0], '032b')
+                version = ''.join(str(int(version[i * 4:(i + 1) * 4], 2))
+                                  for i in range(8))
 
                 if addr in self.__lights:
                     light = self.__lights[addr]
