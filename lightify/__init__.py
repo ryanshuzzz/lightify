@@ -189,6 +189,12 @@ class Scene:
         """
         return self.__group
 
+    def deleted(self):
+        """
+        :return: whether the scene is deleted from gateway or not
+        """
+        return self.__deleted
+
     def mark_deleted(self):
         """ mark the scene as deleted from gateway
         """
@@ -750,6 +756,12 @@ class Group:
         :return:
         """
         self.__scenes = scenes
+
+    def deleted(self):
+        """
+        :return: whether the group is deleted from gateway or not
+        """
+        return self.__deleted
 
     def mark_deleted(self):
         """ mark the group as deleted from gateway
