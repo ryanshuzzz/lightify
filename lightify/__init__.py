@@ -620,6 +620,12 @@ class Group:
         """
         return self.__lights
 
+    def light_names(self):
+        """
+        :return: list of group's light names
+        """
+        return [self.__conn.lights()[addr].name() for addr in self.__lights]
+
     def scenes(self):
         """
         :return: list of group's scene names
