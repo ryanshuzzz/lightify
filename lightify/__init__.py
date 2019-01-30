@@ -1532,7 +1532,7 @@ class Lightify:
                 groups = [16 - j for j, val
                           in enumerate(format(groups, '016b')) if val == '1']
                 version = format(struct.unpack('>I', version)[0], '032b')
-                version = ''.join(str(int(version[i * 4:(i + 1) * 4], 2))
+                version = ''.join('{0:01X}'.format(int(version[i * 4:(i + 1) * 4], 2))
                                   for i in range(8))
 
                 if addr in self.__lights:
