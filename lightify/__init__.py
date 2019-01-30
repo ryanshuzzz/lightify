@@ -32,7 +32,6 @@ import socket
 import struct
 import threading
 import time
-from collections import defaultdict
 from enum import Enum
 
 __version__ = '1.0.7.0'
@@ -106,52 +105,40 @@ class DeviceType(Enum):
 DEVICE_TYPES = {
     1: {'type': DeviceType.LIGHT,
         'subtype': DeviceSubType.LIGHT_FIXED_WHITE,
-        'name': 'light non softswitch'
-       },
+        'name': 'light non softswitch'},
     2: {'type': DeviceType.LIGHT,
         'subtype': DeviceSubType.LIGHT_TUNABLE_WHITE,
-        'name': 'light tunable white'
-       },
+        'name': 'light tunable white'},
     4: {'type': DeviceType.LIGHT,
         'subtype': DeviceSubType.LIGHT_FIXED_WHITE,
-        'name': 'light fixed white'
-       },
+        'name': 'light fixed white'},
     10: {'type': DeviceType.LIGHT,
          'subtype': DeviceSubType.LIGHT_RGB,
-         'name': 'light rgb'
-        },
+         'name': 'light rgb'},
     16: {'type': DeviceType.PLUG,
          'subtype': DeviceSubType.PLUG,
-         'name': 'plug'
-        },
+         'name': 'plug'},
     31: {'type': DeviceType.SENSOR,
          'subtype': DeviceSubType.CONTACT_SENSOR,
-         'name': 'contact sensor'
-        },
+         'name': 'contact sensor'},
     32: {'type': DeviceType.SENSOR,
          'subtype': DeviceSubType.MOTION_SENSOR,
-         'name': 'motion sensor'
-        },
+         'name': 'motion sensor'},
     64: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': '2 button switch'
-        },
+         'name': '2 button switch'},
     65: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': '4 button switch'
-        },
+         'name': '4 button switch'},
     66: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': '3 button switch'
-        },
+         'name': '3 button switch'},
     67: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': 'unknown switch'
-        },
+         'name': 'unknown switch'},
     68: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': 'unknown switch'
-        }
+         'name': 'unknown switch'}
 }
 
 
@@ -278,10 +265,10 @@ class Light:
                 self.__max_temp = self.__temp
             elif self.__devicesubtype == DeviceSubType.LIGHT_TUNABLE_WHITE:
                 self.__supported_features = set(('on', 'lum', 'temp'))
-                self.__min_temp = device_info.get('min_temp',
-                                                  MIN_TEMPERATURE_TUNABLE_WHITE)
-                self.__max_temp = device_info.get('max_temp',
-                                                  MAX_TEMPERATURE_TUNABLE_WHITE)
+                self.__min_temp = device_info.get(
+                    'min_temp', MIN_TEMPERATURE_TUNABLE_WHITE)
+                self.__max_temp = device_info.get(
+                    'max_temp', MAX_TEMPERATURE_TUNABLE_WHITE)
             else:
                 self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
                 self.__min_temp = device_info.get('min_temp',
@@ -309,7 +296,7 @@ class Light:
 
     def reachable(self):
         """
-        :return: true if the light is reachable, false otherwise
+        :return: true if the light is reachable
         """
         return self.__reachable
 
@@ -321,7 +308,7 @@ class Light:
 
     def on(self):
         """
-        :return: true if the status of the light is on, false otherwise
+        :return: true if the status of the light is on
         """
         return self.__onoff
 
@@ -482,7 +469,7 @@ class Light:
         if self.__deleted:
             return
 
-        if not 'on' in self.__supported_features:
+        if 'on' not in self.__supported_features:
             return
 
         onoff = bool(onoff)
@@ -506,7 +493,7 @@ class Light:
         if self.__deleted:
             return
 
-        if not 'lum' in self.__supported_features:
+        if 'lum' not in self.__supported_features:
             return
 
         lum = min(MAX_LUMINANCE, lum)
@@ -534,7 +521,7 @@ class Light:
         if self.__deleted:
             return
 
-        if not 'temp' in self.__supported_features:
+        if 'temp' not in self.__supported_features:
             return
 
         temp = max(self.min_temp(), temp)
@@ -559,7 +546,7 @@ class Light:
         if self.__deleted:
             return
 
-        if not 'rgb' in self.__supported_features:
+        if 'rgb' not in self.__supported_features:
             return
 
         red = min(red, MAX_COLOUR)
@@ -675,14 +662,14 @@ class Group:
 
     def on(self):
         """
-        :return: true if any of the group's lights is on, false otherwise
+        :return: true if any of the group's lights is on
         """
         return any(self.__conn.lights()[addr].on()
                    for addr in self.__lights if addr in self.__conn.lights())
 
     def reachable(self):
         """
-        :return: true if any of the group's lights is reachable, false otherwise
+        :return: true if any of the group's lights is reachable
         """
         return any(self.__conn.lights()[addr].reachable()
                    for addr in self.__lights if addr in self.__conn.lights())
@@ -1296,7 +1283,7 @@ class Lightify:
                 new_groups[name] = group
 
             for name in self.__groups:
-                if (not name in new_groups or
+                if (name not in new_groups or
                         self.__groups[name].idx() != new_groups[name].idx()):
                     self.__groups[name].mark_deleted()
                     del self.__groups[name]
@@ -1310,7 +1297,6 @@ class Lightify:
             self.update_group_scenes()
             self.__groups_updated = time.time()
             return new_groups
-
 
     def _lights_sorted_byidx(self):
         """ get the lights sorted by light idx
@@ -1401,10 +1387,10 @@ class Lightify:
                 new_scenes[name] = scene
 
             for name in self.__scenes:
-                if (not name in new_scenes or
+                if (name not in new_scenes or
                         self.__scenes[name].idx() != new_scenes[name].idx() or
-                        self.__scenes[name].group() != new_scenes[name].group()
-                   ):
+                        self.__scenes[name].group() !=
+                        new_scenes[name].group()):
                     self.__scenes[name].mark_deleted()
                     del self.__scenes[name]
                 else:
@@ -1543,8 +1529,8 @@ class Lightify:
                 (type_id, version, reachable, groups, onoff, lum, temp, red,
                  green, blue) = struct.unpack('<B4sBH2BH3Bx', stat)
                 name = name.decode('utf-8').replace('\0', '')
-                groups = [16 - j for j, val in enumerate(format(groups, '016b'))
-                          if val == '1']
+                groups = [16 - j for j, val
+                          in enumerate(format(groups, '016b')) if val == '1']
                 version = format(struct.unpack('>I', version)[0], '032b')
                 version = ''.join(str(int(version[i * 4:(i + 1) * 4], 2))
                                   for i in range(8))
@@ -1582,12 +1568,12 @@ class Lightify:
                 self.__logger.debug('version:   %s', version)
                 self.__logger.debug('idx:   %s', i)
 
-                light.update_status(reachable, last_seen, onoff, lum, temp, red,
-                                    green, blue, name, groups, version, i)
+                light.update_status(reachable, last_seen, onoff, lum, temp,
+                                    red, green, blue, name, groups, version, i)
                 new_lights[addr] = light
 
             for addr in self.__lights:
-                if not addr in new_lights:
+                if addr not in new_lights:
                     self.__lights[addr].mark_deleted()
                     del self.__lights[addr]
                 else:
