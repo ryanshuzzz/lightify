@@ -496,7 +496,7 @@ class Light:
         if 'lum' not in self.__supported_features:
             return
 
-        lum = min(MAX_LUMINANCE, lum)
+        lum = min(int(lum), MAX_LUMINANCE)
         self.__lum = lum
         if lum > 0:
             self.__lum = lum
@@ -524,8 +524,8 @@ class Light:
         if 'temp' not in self.__supported_features:
             return
 
-        temp = max(self.min_temp(), temp)
-        temp = min(self.max_temp(), temp)
+        temp = max(self.min_temp(), int(temp))
+        temp = min(temp, self.max_temp())
         self.__temp = temp
 
         if send:
@@ -549,9 +549,9 @@ class Light:
         if 'rgb' not in self.__supported_features:
             return
 
-        red = min(red, MAX_COLOUR)
-        green = min(green, MAX_COLOUR)
-        blue = min(blue, MAX_COLOUR)
+        red = min(int(red), MAX_COLOUR)
+        green = min(int(green), MAX_COLOUR)
+        blue = min(int(blue), MAX_COLOUR)
         self.__red = red
         self.__green = green
         self.__blue = blue
@@ -785,7 +785,7 @@ class Group:
         if self.__deleted:
             return
 
-        lum = min(MAX_LUMINANCE, lum)
+        lum = min(int(lum), MAX_LUMINANCE)
         command = self.__conn.build_luminance(self, lum, transition)
         self.__conn.send(command)
 
@@ -806,8 +806,8 @@ class Group:
         if self.__deleted:
             return
 
-        temp = max(self.min_temp(), temp)
-        temp = min(self.max_temp(), temp)
+        temp = max(self.min_temp(), int(temp))
+        temp = min(temp, self.max_temp())
         command = self.__conn.build_temp(self, temp, transition)
         self.__conn.send(command)
 
@@ -830,9 +830,9 @@ class Group:
         if self.__deleted:
             return
 
-        red = min(red, MAX_COLOUR)
-        green = min(green, MAX_COLOUR)
-        blue = min(blue, MAX_COLOUR)
+        red = min(int(red), MAX_COLOUR)
+        green = min(int(green), MAX_COLOUR)
+        blue = min(int(blue), MAX_COLOUR)
         command = self.__conn.build_colour(self, red, green, blue, transition)
         self.__conn.send(command)
 
