@@ -1374,8 +1374,9 @@ class Lightify:
                 name = name.decode('utf-8').replace('\0', '')
                 group = 16 - format(group, '016b').index('1')
 
-                if (name in self.__scenes and self.__scenes[name].idx() == idx
-                        and self.__scenes[name].group() == group):
+                if (name in self.__scenes and
+                        self.__scenes[name].idx() == idx and
+                        self.__scenes[name].group() == group):
                     scene = self.__scenes[name]
                     self.__logger.debug('Old scene %d: %s, group: %d', idx,
                                         name, group)
@@ -1532,8 +1533,8 @@ class Lightify:
                 groups = [16 - j for j, val
                           in enumerate(format(groups, '016b')) if val == '1']
                 version = format(struct.unpack('>I', version)[0], '032b')
-                version = ''.join('{0:01X}'.format(int(version[i * 4:(i + 1) * 4], 2))
-                                  for i in range(8))
+                version = ''.join('{0:01X}'.format(
+                    int(version[i * 4:(i + 1) * 4], 2)) for i in range(8))
 
                 if addr in self.__lights:
                     light = self.__lights[addr]
