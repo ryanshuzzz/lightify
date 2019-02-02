@@ -22,7 +22,7 @@
 #
 
 #
-# TODO: Support for sensors
+# TODO: Support for motion and contact sensors
 #
 
 import binascii
@@ -228,14 +228,13 @@ class Light:
         self.__deleted = False
         self.__type_id = type_id
         self.__idx = 0
+        self.__raw_values = ()
 
         device_info = conn.device_types()[type_id_assumed]
         self.__devicesubtype = device_info['subtype']
         self.__devicetype = device_info['type']
-        if type_id == type_id_assumed:
-            self.__devicename = device_info['name']
-        else:
-            self.__devicename = UNKNOWN_DEVICENAME
+        self.__devicename = (device_info['name'] if type_id == type_id_assumed
+                             else UNKNOWN_DEVICENAME)
 
         if self.__devicesubtype in (DeviceSubType.CONTACT_SENSOR,
                                     DeviceSubType.MOTION_SENSOR,
@@ -366,6 +365,13 @@ class Light:
         """
         return self.__red, self.__green, self.__blue
 
+    def raw_values(self):
+        """
+        :return: tuple containing raw values as obtained from gateway:
+            (onoff, lum, temp, red, green, blue, alpha)
+        """
+        return self.__raw_values
+
     def type_id(self):
         """
         :return: original device type id as returned by gateway
@@ -420,7 +426,7 @@ class Light:
         self.__deleted = True
 
     def update_status(self, reachable, last_seen, onoff, lum, temp, red, green,
-                      blue, name, groups, version, idx):
+                      blue, alpha, name, groups, version, idx):
         """ update internal representation
             does not send out a command to the light source!
 
@@ -432,6 +438,7 @@ class Light:
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
+        :param alpha: alpha value (not used)
         :param name: name of the light
         :param groups: list of associated group indices
         :param version: firmware version
@@ -444,6 +451,7 @@ class Light:
         self.__groups = groups
         self.__version = version
         self.__idx = idx
+        self.__raw_values = (onoff, lum, temp, red, green, blue, alpha)
 
         if 'on' in self.__supported_features:
             self.__onoff = bool(onoff)
@@ -1528,7 +1536,7 @@ class Lightify:
                     return {}
 
                 (type_id, version, reachable, groups, onoff, lum, temp, red,
-                 green, blue) = struct.unpack('<B4sBH2BH3Bx', stat)
+                 green, blue, alpha) = struct.unpack('<B4sBH2BH4B', stat)
                 name = name.decode('utf-8').replace('\0', '')
                 groups = [16 - j for j, val
                           in enumerate(format(groups, '016b')) if val == '1']
@@ -1564,13 +1572,15 @@ class Lightify:
                 self.__logger.debug('red:       %d', red)
                 self.__logger.debug('green:     %d', green)
                 self.__logger.debug('blue:      %d', blue)
+                self.__logger.debug('alpha:     %d', alpha)
                 self.__logger.debug('type id:   %d', type_id)
                 self.__logger.debug('groups:    %s', groups)
                 self.__logger.debug('version:   %s', version)
                 self.__logger.debug('idx:   %s', i)
 
                 light.update_status(reachable, last_seen, onoff, lum, temp,
-                                    red, green, blue, name, groups, version, i)
+                                    red, green, blue, alpha, name, groups,
+                                    version, i)
                 new_lights[addr] = light
 
             for addr in self.__lights:
