@@ -22,7 +22,7 @@
 #
 
 #
-# TODO: Support for sensors
+# TODO: Support for motion and contact sensors
 #
 
 import binascii
@@ -228,14 +228,13 @@ class Light:
         self.__deleted = False
         self.__type_id = type_id
         self.__idx = 0
+        self.__raw_values = ()
 
         device_info = conn.device_types()[type_id_assumed]
         self.__devicesubtype = device_info['subtype']
         self.__devicetype = device_info['type']
-        if type_id == type_id_assumed:
-            self.__devicename = device_info['name']
-        else:
-            self.__devicename = UNKNOWN_DEVICENAME
+        self.__devicename = (device_info['name'] if type_id == type_id_assumed
+                             else UNKNOWN_DEVICENAME)
 
         if self.__devicesubtype in (DeviceSubType.CONTACT_SENSOR,
                                     DeviceSubType.MOTION_SENSOR,
@@ -366,6 +365,13 @@ class Light:
         """
         return self.__red, self.__green, self.__blue
 
+    def raw_values(self):
+        """
+        :return: tuple containing raw values as obtained from gateway:
+            (onoff, lum, temp, red, green, blue, alpha)
+        """
+        return self.__raw_values
+
     def type_id(self):
         """
         :return: original device type id as returned by gateway
@@ -420,7 +426,7 @@ class Light:
         self.__deleted = True
 
     def update_status(self, reachable, last_seen, onoff, lum, temp, red, green,
-                      blue, name, groups, version, idx):
+                      blue, alpha, name, groups, version, idx):
         """ update internal representation
             does not send out a command to the light source!
 
@@ -432,6 +438,7 @@ class Light:
         :param red: amount of red
         :param green: amount of green
         :param blue: amount of blue
+        :param alpha: alpha value (not used)
         :param name: name of the light
         :param groups: list of associated group indices
         :param version: firmware version
@@ -444,6 +451,7 @@ class Light:
         self.__groups = groups
         self.__version = version
         self.__idx = idx
+        self.__raw_values = (onoff, lum, temp, red, green, blue, alpha)
 
         if 'on' in self.__supported_features:
             self.__onoff = bool(onoff)
@@ -496,7 +504,7 @@ class Light:
         if 'lum' not in self.__supported_features:
             return
 
-        lum = min(MAX_LUMINANCE, lum)
+        lum = min(int(lum), MAX_LUMINANCE)
         self.__lum = lum
         if lum > 0:
             self.__lum = lum
@@ -524,8 +532,8 @@ class Light:
         if 'temp' not in self.__supported_features:
             return
 
-        temp = max(self.min_temp(), temp)
-        temp = min(self.max_temp(), temp)
+        temp = max(self.min_temp(), int(temp))
+        temp = min(temp, self.max_temp())
         self.__temp = temp
 
         if send:
@@ -549,9 +557,9 @@ class Light:
         if 'rgb' not in self.__supported_features:
             return
 
-        red = min(red, MAX_COLOUR)
-        green = min(green, MAX_COLOUR)
-        blue = min(blue, MAX_COLOUR)
+        red = min(int(red), MAX_COLOUR)
+        green = min(int(green), MAX_COLOUR)
+        blue = min(int(blue), MAX_COLOUR)
         self.__red = red
         self.__green = green
         self.__blue = blue
@@ -785,7 +793,7 @@ class Group:
         if self.__deleted:
             return
 
-        lum = min(MAX_LUMINANCE, lum)
+        lum = min(int(lum), MAX_LUMINANCE)
         command = self.__conn.build_luminance(self, lum, transition)
         self.__conn.send(command)
 
@@ -806,8 +814,8 @@ class Group:
         if self.__deleted:
             return
 
-        temp = max(self.min_temp(), temp)
-        temp = min(self.max_temp(), temp)
+        temp = max(self.min_temp(), int(temp))
+        temp = min(temp, self.max_temp())
         command = self.__conn.build_temp(self, temp, transition)
         self.__conn.send(command)
 
@@ -830,9 +838,9 @@ class Group:
         if self.__deleted:
             return
 
-        red = min(red, MAX_COLOUR)
-        green = min(green, MAX_COLOUR)
-        blue = min(blue, MAX_COLOUR)
+        red = min(int(red), MAX_COLOUR)
+        green = min(int(green), MAX_COLOUR)
+        blue = min(int(blue), MAX_COLOUR)
         command = self.__conn.build_colour(self, red, green, blue, transition)
         self.__conn.send(command)
 
@@ -1374,8 +1382,9 @@ class Lightify:
                 name = name.decode('utf-8').replace('\0', '')
                 group = 16 - format(group, '016b').index('1')
 
-                if (name in self.__scenes and self.__scenes[name].idx() == idx
-                        and self.__scenes[name].group() == group):
+                if (name in self.__scenes and
+                        self.__scenes[name].idx() == idx and
+                        self.__scenes[name].group() == group):
                     scene = self.__scenes[name]
                     self.__logger.debug('Old scene %d: %s, group: %d', idx,
                                         name, group)
@@ -1527,13 +1536,13 @@ class Lightify:
                     return {}
 
                 (type_id, version, reachable, groups, onoff, lum, temp, red,
-                 green, blue) = struct.unpack('<B4sBH2BH3Bx', stat)
+                 green, blue, alpha) = struct.unpack('<B4sBH2BH4B', stat)
                 name = name.decode('utf-8').replace('\0', '')
                 groups = [16 - j for j, val
                           in enumerate(format(groups, '016b')) if val == '1']
                 version = format(struct.unpack('>I', version)[0], '032b')
-                version = ''.join('{0:01X}'.format(int(version[i * 4:(i + 1) * 4], 2))
-                                  for i in range(8))
+                version = ''.join('{0:01X}'.format(
+                    int(version[i * 4:(i + 1) * 4], 2)) for i in range(8))
 
                 if addr in self.__lights:
                     light = self.__lights[addr]
@@ -1563,13 +1572,15 @@ class Lightify:
                 self.__logger.debug('red:       %d', red)
                 self.__logger.debug('green:     %d', green)
                 self.__logger.debug('blue:      %d', blue)
+                self.__logger.debug('alpha:     %d', alpha)
                 self.__logger.debug('type id:   %d', type_id)
                 self.__logger.debug('groups:    %s', groups)
                 self.__logger.debug('version:   %s', version)
                 self.__logger.debug('idx:   %s', i)
 
                 light.update_status(reachable, last_seen, onoff, lum, temp,
-                                    red, green, blue, name, groups, version, i)
+                                    red, green, blue, alpha, name, groups,
+                                    version, i)
                 new_lights[addr] = light
 
             for addr in self.__lights:
