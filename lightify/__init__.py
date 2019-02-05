@@ -922,7 +922,7 @@ class Lightify:
             self.__logger.addHandler(loghandler)
         else:
             self.__logger.addHandler(logging.NullHandler())
-        self.__logger.info("Initializing python %s, version=%s", MODULE, __version__)
+        self.__logger.info('Initializing %s, version=%s', MODULE, __version__)
 
         # a sequence number used to number commands sent to the gateway
         self.__seq = 0
