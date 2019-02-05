@@ -885,7 +885,7 @@ class Group:
 class Lightify:
     """ main osram lightify class
     """
-    def __init__(self, host, new_device_types=None):
+    def __init__(self, host, new_device_types=None, loghandler=None):
         """
         :param host: lightify gateway host
         :param new_device_types: dict of additional device types to merge with
@@ -917,8 +917,12 @@ class Lightify:
         self.__device_types.update(new_device_types or {})
 
         self.__logger = logging.getLogger(MODULE)
-        self.__logger.addHandler(logging.NullHandler())
-        self.__logger.info('Logging %s', MODULE)
+        self.__logger.setLevel(logging.INFO)
+        if loghandler is not None:
+            self.__logger.addHandler(loghandler)
+        else:
+            self.__logger.addHandler(logging.NullHandler())
+        self.__logger.info("Initializing python %s, version=%s", MODULE, __version__)
 
         # a sequence number used to number commands sent to the gateway
         self.__seq = 0
@@ -961,6 +965,21 @@ class Lightify:
         with self.__lock:
             self.__seq = (self.__seq + 1) % 256
             return self.__seq
+
+    def set_loglevel(self, debugLevel):
+        self.__logger.setLevel(debugLevel)
+        level_str = 'NOTSET'
+        if debugLevel == logging.DEBUG:
+            level_str = 'DEBUG'
+        elif debugLevel == logging.INFO:
+            level_str = 'INFO'
+        elif debugLevel == logging.WARNING:
+            level_str = 'WARNING'
+        elif debugLevel == logging.ERROR:
+            level_str = 'ERROR'
+        elif debugLevel == logging.CRITICAL:
+            level_str = 'CRITICAL'
+        self.__logger.info("set_loglevel to '%s'", level_str)
 
     def set_lights_updated(self):
         """ update lights updated timestamp
