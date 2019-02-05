@@ -983,7 +983,7 @@ class Lightify:
             level_str = 'ERROR'
         elif debugLevel == logging.CRITICAL:
             level_str = 'CRITICAL'
-        self.__logger.info("set_loglevel to '%s'", level_str)
+        self.__logger.info('set log level to %s', logging.getLevelName(level))
 
     def set_lights_updated(self):
         """ update lights updated timestamp
