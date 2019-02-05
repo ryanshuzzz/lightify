@@ -918,7 +918,7 @@ class Lightify:
 
         self.__logger = logging.getLogger(MODULE)
         self.__logger.setLevel(logging.INFO)
-        if loghandler is not None:
+        if loghandler:
             self.__logger.addHandler(loghandler)
         else:
             self.__logger.addHandler(logging.NullHandler())
