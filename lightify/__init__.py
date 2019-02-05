@@ -138,7 +138,13 @@ DEVICE_TYPES = {
          'name': 'unknown switch'},
     68: {'type': DeviceType.SWITCH,
          'subtype': DeviceSubType.SWITCH,
-         'name': 'unknown switch'}
+         'name': 'unknown switch'},
+    128: {'type': DeviceType.LIGHT,
+          'subtype': DeviceSubType.LIGHT_TUNABLE_WHITE,
+          'name': 'tradfri tunable white',
+          'min_temp': 2200,
+          'max_temp': 4000
+          },
 }
 
 
@@ -907,8 +913,8 @@ class Lightify:
                 'type': DeviceType.LIGHT,
                 'subtype': DeviceSubType.LIGHT_TUNABLE_WHITE,
                 'name': 'tradfri tunable white',
-                'min_temp': 2700,
-                'max_temp': 6500
+                'min_temp': 2200,
+                'max_temp': 4000
              }
             }
         }}
