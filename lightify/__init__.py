@@ -966,7 +966,11 @@ class Lightify:
             self.__seq = (self.__seq + 1) % 256
             return self.__seq
 
-    def set_loglevel(self, debugLevel):
+    def set_loglevel(self, level):
+    """ set the log level
+    
+    :param level: log level (from logging module)
+    """
         self.__logger.setLevel(debugLevel)
         level_str = 'NOTSET'
         if debugLevel == logging.DEBUG:
