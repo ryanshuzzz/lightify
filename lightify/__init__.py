@@ -885,7 +885,7 @@ class Group:
 class Lightify:
     """ main osram lightify class
     """
-    def __init__(self, host, new_device_types=None, loghandler=None):
+    def __init__(self, host, new_device_types=None, log_level=logging.INFO, loghandler=None):
         """
         :param host: lightify gateway host
         :param new_device_types: dict of additional device types to merge with
@@ -912,13 +912,14 @@ class Lightify:
              }
             }
         }}
+        :param log_level: logging.loglevel Enum
         :param loghandler: logging.Handler object
         """
         self.__device_types = DEVICE_TYPES.copy()
         self.__device_types.update(new_device_types or {})
 
         self.__logger = logging.getLogger(MODULE)
-        self.__logger.setLevel(logging.INFO)
+        self.__logger.setLevel(log_level)
         if loghandler:
             self.__logger.addHandler(loghandler)
         else:
