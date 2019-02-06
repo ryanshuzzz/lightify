@@ -968,13 +968,13 @@ class Lightify:
             self.__seq = (self.__seq + 1) % 256
             return self.__seq
 
-    def set_loglevel(self, level):
+    def set_loglevel(self, log_level):
         """ set the log level
 
         :param log_level: logging.loglevel Enum
         """
-        self.__logger.setLevel(level)
-        self.__logger.info("set log level to '%s'", logging.getLevelName(level))
+        self.__logger.setLevel(log_level)
+        self.__logger.info("set log level to '%s'", logging.getLevelName(log_level))
 
     def set_lights_updated(self):
         """ update lights updated timestamp
