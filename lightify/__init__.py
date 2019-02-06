@@ -912,6 +912,7 @@ class Lightify:
              }
             }
         }}
+        :param loghandler: logging.Handler object
         """
         self.__device_types = DEVICE_TYPES.copy()
         self.__device_types.update(new_device_types or {})
@@ -967,23 +968,12 @@ class Lightify:
             return self.__seq
 
     def set_loglevel(self, level):
-    """ set the log level
-    
-    :param level: log level (from logging module)
-    """
-        self.__logger.setLevel(debugLevel)
-        level_str = 'NOTSET'
-        if debugLevel == logging.DEBUG:
-            level_str = 'DEBUG'
-        elif debugLevel == logging.INFO:
-            level_str = 'INFO'
-        elif debugLevel == logging.WARNING:
-            level_str = 'WARNING'
-        elif debugLevel == logging.ERROR:
-            level_str = 'ERROR'
-        elif debugLevel == logging.CRITICAL:
-            level_str = 'CRITICAL'
-        self.__logger.info('set log level to %s', logging.getLevelName(level))
+        """ set the log level
+
+        :param level: log level (from logging module)
+        """
+        self.__logger.setLevel(level)
+        self.__logger.info("set log level to '%s'", logging.getLevelName(level))
 
     def set_lights_updated(self):
         """ update lights updated timestamp
