@@ -971,7 +971,7 @@ class Lightify:
     def set_loglevel(self, level):
         """ set the log level
 
-        :param level: log level (from logging module)
+        :param log_level: logging.loglevel Enum
         """
         self.__logger.setLevel(level)
         self.__logger.info("set log level to '%s'", logging.getLevelName(level))
