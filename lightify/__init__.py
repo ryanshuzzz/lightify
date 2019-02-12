@@ -34,7 +34,7 @@ import threading
 import time
 from enum import Enum
 
-__version__ = '1.0.7.0'
+__version__ = '1.0.7.1'
 MODULE = __name__
 PORT = 4000
 
@@ -891,7 +891,8 @@ class Group:
 class Lightify:
     """ main osram lightify class
     """
-    def __init__(self, host, new_device_types=None, log_level=logging.INFO, loghandler=None):
+    def __init__(self, host, new_device_types=None, log_level=logging.INFO,
+                 loghandler=None):
         """
         :param host: lightify gateway host
         :param new_device_types: dict of additional device types to merge with
@@ -926,10 +927,7 @@ class Lightify:
 
         self.__logger = logging.getLogger(MODULE)
         self.__logger.setLevel(log_level)
-        if loghandler:
-            self.__logger.addHandler(loghandler)
-        else:
-            self.__logger.addHandler(logging.NullHandler())
+        self.__logger.addHandler(loghandler or logging.NullHandler())
         self.__logger.info('Initializing %s, version=%s', MODULE, __version__)
 
         # a sequence number used to number commands sent to the gateway
@@ -980,7 +978,8 @@ class Lightify:
         :param log_level: logging.loglevel Enum
         """
         self.__logger.setLevel(log_level)
-        self.__logger.info("set log level to '%s'", logging.getLevelName(log_level))
+        self.__logger.info('set log level to %s',
+                           logging.getLevelName(log_level))
 
     def set_lights_updated(self):
         """ update lights updated timestamp
