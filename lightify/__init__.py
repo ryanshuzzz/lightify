@@ -34,7 +34,7 @@ import threading
 import time
 from enum import Enum
 
-__version__ = '1.0.7.0'
+__version__ = '1.0.7.1'
 MODULE = __name__
 PORT = 4000
 
@@ -65,14 +65,14 @@ FLAG_GLOBAL = 0x02
 LAST_SEEN_DURATION_MINUTES = 5
 NO_RGB_VALUES = (1, 0, 0)
 TYPE_LIGHT_TUNABLE_WHITE = 2
-TYPE_LIGHT_RGB = 10
+TYPE_LIGHT_RGBW = 10
 
 DEFAULT_LUMINANCE = 1
 DEFAULT_TEMPERATURE = 2700
 MIN_TEMPERATURE_TUNABLE_WHITE = 2700
 MAX_TEMPERATURE_TUNABLE_WHITE = 6500
-MIN_TEMPERATURE_RGB = 1900
-MAX_TEMPERATURE_RGB = 6500
+MIN_TEMPERATURE_RGBW = 1900
+MAX_TEMPERATURE_RGBW = 6500
 MAX_LUMINANCE = 100
 MAX_COLOUR = 255
 
@@ -87,10 +87,11 @@ class DeviceSubType(Enum):
     LIGHT_FIXED_WHITE = 1
     LIGHT_TUNABLE_WHITE = 2
     LIGHT_RGB = 3
-    PLUG = 4
-    CONTACT_SENSOR = 5
-    MOTION_SENSOR = 6
-    SWITCH = 7
+    LIGHT_RGBW = 4
+    PLUG = 5
+    SWITCH = 6
+    CONTACT_SENSOR = 7
+    MOTION_SENSOR = 8
 
 
 class DeviceType(Enum):
@@ -112,9 +113,12 @@ DEVICE_TYPES = {
     4: {'type': DeviceType.LIGHT,
         'subtype': DeviceSubType.LIGHT_FIXED_WHITE,
         'name': 'light fixed white'},
+    8: {'type': DeviceType.LIGHT,
+        'subtype': DeviceSubType.LIGHT_RGB,
+        'name': 'light rgb'},
     10: {'type': DeviceType.LIGHT,
-         'subtype': DeviceSubType.LIGHT_RGB,
-         'name': 'light rgb'},
+         'subtype': DeviceSubType.LIGHT_RGBW,
+         'name': 'light rgbw'},
     16: {'type': DeviceType.PLUG,
          'subtype': DeviceSubType.PLUG,
          'name': 'plug'},
@@ -144,7 +148,7 @@ DEVICE_TYPES = {
           'name': 'tradfri tunable white',
           'min_temp': 2200,
           'max_temp': 4000
-          },
+          }
 }
 
 
@@ -242,9 +246,9 @@ class Light:
         self.__devicename = (device_info['name'] if type_id == type_id_assumed
                              else UNKNOWN_DEVICENAME)
 
-        if self.__devicesubtype in (DeviceSubType.CONTACT_SENSOR,
-                                    DeviceSubType.MOTION_SENSOR,
-                                    DeviceSubType.SWITCH):
+        if self.__devicesubtype in (DeviceSubType.SWITCH,
+                                    DeviceSubType.CONTACT_SENSOR,
+                                    DeviceSubType.MOTION_SENSOR):
             self.__lum = 0
             self.__temp = 0
             self.__red = 0
@@ -274,12 +278,16 @@ class Light:
                     'min_temp', MIN_TEMPERATURE_TUNABLE_WHITE)
                 self.__max_temp = device_info.get(
                     'max_temp', MAX_TEMPERATURE_TUNABLE_WHITE)
+            elif self.__devicesubtype == DeviceSubType.LIGHT_RGB:
+                self.__supported_features = set(('on', 'lum', 'rgb'))
+                self.__min_temp = self.__temp
+                self.__max_temp = self.__temp
             else:
                 self.__supported_features = set(('on', 'lum', 'temp', 'rgb'))
                 self.__min_temp = device_info.get('min_temp',
-                                                  MIN_TEMPERATURE_RGB)
+                                                  MIN_TEMPERATURE_RGBW)
                 self.__max_temp = device_info.get('max_temp',
-                                                  MAX_TEMPERATURE_RGB)
+                                                  MAX_TEMPERATURE_RGBW)
 
     def name(self):
         """
@@ -891,7 +899,8 @@ class Group:
 class Lightify:
     """ main osram lightify class
     """
-    def __init__(self, host, new_device_types=None, log_level=logging.INFO, loghandler=None):
+    def __init__(self, host, new_device_types=None, log_level=logging.INFO,
+                 loghandler=None):
         """
         :param host: lightify gateway host
         :param new_device_types: dict of additional device types to merge with
@@ -900,10 +909,10 @@ class Lightify:
                 'type': <DeviceType instance>,
                 'subtype': <DeviceSubType instance>,
                 'name': <name of the device>,
-                # only for LIGHT_TUNABLE_WHITE and LIGHT_RGB:
+                # only for LIGHT_TUNABLE_WHITE and LIGHT_RGBW:
                 'min_temp': <minimum temperature>, # optional, default:
                                                    # 2700 (LIGHT_TUNABLE_WHITE)
-                                                   # 1900 (LIGHT_RGB)
+                                                   # 1900 (LIGHT_RGBW)
                 'max_temp': <maximum temperature>  # optional, default: 6500
              },
              ...
@@ -926,10 +935,7 @@ class Lightify:
 
         self.__logger = logging.getLogger(MODULE)
         self.__logger.setLevel(log_level)
-        if loghandler:
-            self.__logger.addHandler(loghandler)
-        else:
-            self.__logger.addHandler(logging.NullHandler())
+        self.__logger.addHandler(loghandler or logging.NullHandler())
         self.__logger.info('Initializing %s, version=%s', MODULE, __version__)
 
         # a sequence number used to number commands sent to the gateway
@@ -980,7 +986,8 @@ class Lightify:
         :param log_level: logging.loglevel Enum
         """
         self.__logger.setLevel(log_level)
-        self.__logger.info("set log level to '%s'", logging.getLevelName(log_level))
+        self.__logger.info('set log level to %s',
+                           logging.getLevelName(log_level))
 
     def set_lights_updated(self):
         """ update lights updated timestamp
@@ -1576,7 +1583,7 @@ class Lightify:
                         if (red, green, blue) == NO_RGB_VALUES:
                             type_id_assumed = TYPE_LIGHT_TUNABLE_WHITE
                         else:
-                            type_id_assumed = TYPE_LIGHT_RGB
+                            type_id_assumed = TYPE_LIGHT_RGBW
                     else:
                         type_id_assumed = type_id
 
