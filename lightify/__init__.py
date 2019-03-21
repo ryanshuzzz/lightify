@@ -34,7 +34,7 @@ import threading
 import time
 from enum import Enum
 
-__version__ = '1.0.7.1'
+__version__ = '1.0.7.2'
 MODULE = __name__
 PORT = 4000
 
