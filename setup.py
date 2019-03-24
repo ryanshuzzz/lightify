@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='lightify',
-    version='1.0.7.1',
+    version='1.0.7.2',
     packages=['lightify'],
     include_package_data=True,
     license='Apache License (2.0)',

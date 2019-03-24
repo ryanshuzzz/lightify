@@ -34,7 +34,7 @@ import threading
 import time
 from enum import Enum
 
-__version__ = '1.0.7.1'
+__version__ = '1.0.7.2'
 MODULE = __name__
 PORT = 4000
 
@@ -652,6 +652,10 @@ class Group:
 
         :return:
         """
+        if not [addr for addr in self.__lights
+                if addr in self.__conn.lights()]:
+            return
+
         features = [self.__conn.lights()[addr].supported_features()
                     for addr in self.__lights if addr in self.__conn.lights()]
         self.__supported_features = set.union(*features)
@@ -1297,25 +1301,36 @@ class Lightify:
             command = self.build_group_list()
             data = self.send(command)
 
-            (num,) = struct.unpack('<H', data[7:9])
-            self.__logger.debug('Number of groups: %d', num)
-            new_groups = {}
+            try:
+                (num,) = struct.unpack('<H', data[7:9])
+                self.__logger.debug('Number of groups: %d', num)
+                if len(data) < 8 + num * 18:
+                    raise struct.error('Incorrect data length for {} records:'
+                                       ' {}'.format(num, len(data)))
 
-            for i in range(0, num):
-                pos = 9 + i * 18
-                payload = data[pos:pos + 18]
+                new_groups = {}
+                for i in range(0, num):
+                    pos = 9 + i * 18
+                    payload = data[pos:pos + 18]
+                    self.__logger.debug('Group payload: %d', i)
 
-                (idx, name) = struct.unpack('<H16s', payload)
-                name = name.decode('utf-8').replace('\0', '')
+                    (idx, name) = struct.unpack('<H16s', payload)
+                    name = name.decode('utf-8').replace('\0', '')
 
-                if name in self.__groups and self.__groups[name].idx() == idx:
-                    group = self.__groups[name]
-                    self.__logger.debug('Old group %d: %s', idx, name)
-                else:
-                    group = Group(self, idx, name)
-                    self.__logger.debug('New group %d: %s', idx, name)
+                    if (name in self.__groups and
+                            self.__groups[name].idx() == idx):
+                        group = self.__groups[name]
+                        self.__logger.debug('Old group %d: %s', idx, name)
+                    else:
+                        group = Group(self, idx, name)
+                        self.__logger.debug('New group %d: %s', idx, name)
 
-                new_groups[name] = group
+                    new_groups[name] = group
+
+            except (struct.error, UnicodeDecodeError) as err:
+                self.__logger.error('Couldn\'t parse group status: %s', err)
+                self.__logger.error('Data: %s', binascii.hexlify(data))
+                return {}
 
             for name in self.__groups:
                 if (name not in new_groups or
@@ -1397,30 +1412,40 @@ class Lightify:
             command = self.build_scene_list()
             data = self.send(command)
 
-            (num,) = struct.unpack('<H', data[7:9])
-            self.__logger.debug('Number of scenes: %d', num)
-            new_scenes = {}
+            try:
+                (num,) = struct.unpack('<H', data[7:9])
+                self.__logger.debug('Number of scenes: %d', num)
+                if len(data) < 8 + num * 20:
+                    raise struct.error('Incorrect data length for {} records:'
+                                       ' {}'.format(num, len(data)))
 
-            for i in range(0, num):
-                pos = 9 + i * 20
-                payload = data[pos:pos + 20]
+                new_scenes = {}
+                for i in range(0, num):
+                    pos = 9 + i * 20
+                    payload = data[pos:pos + 20]
+                    self.__logger.debug('Scene payload: %d', i)
 
-                (idx, name, group) = struct.unpack('<Bx16sH', payload)
-                name = name.decode('utf-8').replace('\0', '')
-                group = 16 - format(group, '016b').index('1')
+                    (idx, name, group) = struct.unpack('<Bx16sH', payload)
+                    name = name.decode('utf-8').replace('\0', '')
+                    group = 16 - format(group, '016b').index('1')
 
-                if (name in self.__scenes and
-                        self.__scenes[name].idx() == idx and
-                        self.__scenes[name].group() == group):
-                    scene = self.__scenes[name]
-                    self.__logger.debug('Old scene %d: %s, group: %d', idx,
-                                        name, group)
-                else:
-                    scene = Scene(self, idx, name, group)
-                    self.__logger.debug('New scene %d: %s, group: %d', idx,
-                                        name, group)
+                    if (name in self.__scenes and
+                            self.__scenes[name].idx() == idx and
+                            self.__scenes[name].group() == group):
+                        scene = self.__scenes[name]
+                        self.__logger.debug('Old scene %d: %s, group: %d', idx,
+                                            name, group)
+                    else:
+                        scene = Scene(self, idx, name, group)
+                        self.__logger.debug('New scene %d: %s, group: %d', idx,
+                                            name, group)
 
-                new_scenes[name] = scene
+                    new_scenes[name] = scene
+
+            except (struct.error, UnicodeDecodeError, ValueError) as err:
+                self.__logger.error('Couldn\'t parse scene status: %s', err)
+                self.__logger.error('Data: %s', binascii.hexlify(data))
+                return {}
 
             for name in self.__scenes:
                 if (name not in new_scenes or
@@ -1541,74 +1566,75 @@ class Lightify:
                 self.__lights_updated = time.time()
                 return {}
 
-            (num,) = struct.unpack('<H', data[7:9])
-            self.__logger.debug('Number of lights: %d', num)
-            new_lights = {}
+            try:
+                (num,) = struct.unpack('<H', data[7:9])
+                self.__logger.debug('Number of lights: %d', num)
+                if len(data) < 8 + num * 50:
+                    raise struct.error('Incorrect data length for {} records:'
+                                       ' {}'.format(num, len(data)))
 
-            for i in range(0, num):
-                pos = 9 + i * 50
-                payload = data[pos:pos + 50]
-                self.__logger.debug('Light payload: %d %d %d', i, pos,
-                                    len(payload))
+                new_lights = {}
+                for i in range(0, num):
+                    pos = 9 + i * 50
+                    payload = data[pos:pos + 50]
+                    self.__logger.debug('Light payload: %d', i)
 
-                try:
                     (addr, stat, name, last_seen) = struct.unpack(
                         '<2xQ16s16sI4x', payload)
-                except struct.error as err:
-                    self.__logger.warning(
-                        'Couldn\'t unpack light status packet:')
-                    self.__logger.warning('struct.error: %s', err)
-                    self.__logger.warning('payload: %s',
-                                          binascii.hexlify(payload))
-                    return {}
+                    (type_id, version, reachable, groups,
+                     onoff, lum, temp, red,
+                     green, blue, alpha) = struct.unpack('<B4sBH2BH4B', stat)
+                    name = name.decode('utf-8').replace('\0', '')
+                    groups = [16 - j for j, val
+                              in enumerate(format(groups, '016b'))
+                              if val == '1']
+                    version = format(struct.unpack('>I', version)[0], '032b')
+                    version = ''.join('{0:01X}'.format(
+                        int(version[i * 4:(i + 1) * 4], 2)) for i in range(8))
 
-                (type_id, version, reachable, groups, onoff, lum, temp, red,
-                 green, blue, alpha) = struct.unpack('<B4sBH2BH4B', stat)
-                name = name.decode('utf-8').replace('\0', '')
-                groups = [16 - j for j, val
-                          in enumerate(format(groups, '016b')) if val == '1']
-                version = format(struct.unpack('>I', version)[0], '032b')
-                version = ''.join('{0:01X}'.format(
-                    int(version[i * 4:(i + 1) * 4], 2)) for i in range(8))
-
-                if addr in self.__lights:
-                    light = self.__lights[addr]
-                    self.__logger.debug('Old light: %x', addr)
-                else:
-                    if type_id not in self.__device_types:
-                        self.__logger.warning(
-                            'Unknown device type id: %s. Please report to '
-                            'https://github.com/tfriedel/python-lightify',
-                            type_id)
-                        if (red, green, blue) == NO_RGB_VALUES:
-                            type_id_assumed = TYPE_LIGHT_TUNABLE_WHITE
-                        else:
-                            type_id_assumed = TYPE_LIGHT_RGBW
+                    if addr in self.__lights:
+                        light = self.__lights[addr]
+                        self.__logger.debug('Old light: %x', addr)
                     else:
-                        type_id_assumed = type_id
+                        if type_id not in self.__device_types:
+                            self.__logger.warning(
+                                'Unknown device type id: %s. Please report to '
+                                'https://github.com/tfriedel/python-lightify',
+                                type_id)
+                            if (red, green, blue) == NO_RGB_VALUES:
+                                type_id_assumed = TYPE_LIGHT_TUNABLE_WHITE
+                            else:
+                                type_id_assumed = TYPE_LIGHT_RGBW
+                        else:
+                            type_id_assumed = type_id
 
-                    light = Light(self, addr, type_id, type_id_assumed)
-                    self.__logger.debug('New light: %x', addr)
+                        light = Light(self, addr, type_id, type_id_assumed)
+                        self.__logger.debug('New light: %x', addr)
 
-                self.__logger.debug('name:      %s', name)
-                self.__logger.debug('reachable: %d', reachable)
-                self.__logger.debug('last seen: %d', last_seen)
-                self.__logger.debug('onoff:     %d', onoff)
-                self.__logger.debug('lum:       %d', lum)
-                self.__logger.debug('temp:      %d', temp)
-                self.__logger.debug('red:       %d', red)
-                self.__logger.debug('green:     %d', green)
-                self.__logger.debug('blue:      %d', blue)
-                self.__logger.debug('alpha:     %d', alpha)
-                self.__logger.debug('type id:   %d', type_id)
-                self.__logger.debug('groups:    %s', groups)
-                self.__logger.debug('version:   %s', version)
-                self.__logger.debug('idx:   %s', i)
+                    self.__logger.debug('name:      %s', name)
+                    self.__logger.debug('reachable: %d', reachable)
+                    self.__logger.debug('last seen: %d', last_seen)
+                    self.__logger.debug('onoff:     %d', onoff)
+                    self.__logger.debug('lum:       %d', lum)
+                    self.__logger.debug('temp:      %d', temp)
+                    self.__logger.debug('red:       %d', red)
+                    self.__logger.debug('green:     %d', green)
+                    self.__logger.debug('blue:      %d', blue)
+                    self.__logger.debug('alpha:     %d', alpha)
+                    self.__logger.debug('type id:   %d', type_id)
+                    self.__logger.debug('groups:    %s', groups)
+                    self.__logger.debug('version:   %s', version)
+                    self.__logger.debug('idx:   %s', i)
 
-                light.update_status(reachable, last_seen, onoff, lum, temp,
-                                    red, green, blue, alpha, name, groups,
-                                    version, i)
-                new_lights[addr] = light
+                    light.update_status(reachable, last_seen, onoff, lum, temp,
+                                        red, green, blue, alpha, name, groups,
+                                        version, i)
+                    new_lights[addr] = light
+
+            except (struct.error, UnicodeDecodeError) as err:
+                self.__logger.error('Couldn\'t parse light status: %s', err)
+                self.__logger.error('Data: %s', binascii.hexlify(data))
+                return {}
 
             for addr in self.__lights:
                 if addr not in new_lights:
